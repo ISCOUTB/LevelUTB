@@ -3,7 +3,7 @@
 import { useState, useSyncExternalStore } from "react"
 import { signIn } from "next-auth/react"
 import { useRouter } from "next/navigation"
-import { GraduationCap, Mail, Lock, Eye, EyeOff, Moon, Sun } from "lucide-react"
+import { Mail, Lock, Eye, EyeOff, Moon, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 
 export default function LoginPage() {
@@ -52,31 +52,35 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="relative min-h-screen bg-linear-to-br from-blue-50 via-white to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-white dark:bg-gray-900 flex items-center justify-center px-4 py-12">
+      {/* Theme toggle */}
       <button
         type="button"
         onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
         aria-label={themeLabel}
         title={themeLabel}
-        className="absolute right-4 top-4 rounded-lg p-2 text-gray-500 hover:bg-white/70 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800/70 dark:hover:text-white"
+        className="absolute right-4 top-4 z-10 rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800/70 dark:hover:text-white"
       >
         {mounted && theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
       </button>
+
+      {/* Login Card */}
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="mx-auto mb-4 flex aspect-square h-12 w-12 items-center justify-center rounded-xl bg-linear-to-br from-blue-500 to-purple-600">
-            <GraduationCap className="h-6 w-6 text-white" />
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-600">
+            <svg className="h-6 w-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 3L1 9l11 6 9-4.91V17h2V9L12 3z" />
+              <path d="M5 13.18v4L12 21l7-3.82v-4" />
+              <path d="M9 9h6v6H9z" />
+            </svg>
           </div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">LevelUTB</h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-1">
-            Experiencia de avance académico
-          </p>
+          <p className="text-gray-600 dark:text-gray-400 mt-1">Experiencia de avance académico</p>
         </div>
 
-        {/* Login Card */}
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8 border border-gray-200 dark:border-gray-700">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-8 border border-gray-200 dark:border-gray-700">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6 text-center">
             Iniciar Sesión
           </h2>
 
@@ -137,7 +141,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 bg-linear-to-r from-blue-500 to-purple-600 text-white font-semibold rounded-lg hover:from-blue-600 hover:to-purple-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              className="w-full py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {loading ? "Ingresando..." : "Ingresar"}
             </button>
