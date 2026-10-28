@@ -11,6 +11,7 @@ import {
   Gift,
   Loader2,
   Users,
+  Plus,
 } from "lucide-react"
 
 type CourseStudent = {
@@ -88,13 +89,14 @@ type ReviewedReward = {
   course: { id: string; code: string; name: string; semester: number }
 }
 
-type Section = "cursos" | "misiones" | "recompensas" | "historial"
+type Section = "cursos" | "misiones" | "recompensas" | "historial" | "crear-recompensa"
 
 const SECTION_META: Record<Section, { title: string; description: string; icon: typeof Users }> = {
   cursos: { title: "Mis estudiantes", description: "Estudiantes matriculados en el curso seleccionado.", icon: Users },
   misiones: { title: "Misiones por revisar", description: "Revisa la evidencia y otorga los puntos correspondientes.", icon: Clock },
   recompensas: { title: "Recompensas por revisar", description: "Aprueba o rechaza las solicitudes de canje.", icon: Gift },
   historial: { title: "Historial", description: "Misiones verificadas y recompensas ya revisadas.", icon: CheckCircle2 },
+  "crear-recompensa": { title: "Crear Recompensa", description: "Crea recompensas personalizadas para tus estudiantes.", icon: Plus },
 }
 
 function rewardStatusLabel(status: CourseStudent["rewardStatus"], pending: number) {
@@ -132,7 +134,7 @@ function TeachersContent() {
   const courseParam = searchParams.get("course")
 
   const section: Section =
-    sectionParam === "misiones" || sectionParam === "recompensas" || sectionParam === "historial"
+    sectionParam === "misiones" || sectionParam === "recompensas" || sectionParam === "historial" || sectionParam === "crear-recompensa"
       ? sectionParam
       : "cursos"
 
@@ -148,6 +150,11 @@ function TeachersContent() {
   const [reviewComment, setReviewComment] = useState<Record<string, string>>({})
   const [rewardReviewLoading, setRewardReviewLoading] = useState<string | null>(null)
   const [rewardReviewComment, setRewardReviewComment] = useState<Record<string, string>>({})
+  const [name, setName] = useState("")
+  const [description, setDescription] = useState("")
+  const [icon, setIcon] = useState("")
+  const [category, setCategory] = useState("")
+  const [cost, setCost] = useState("")
 
   const loadData = async () => {
     setLoading(true)
@@ -560,6 +567,131 @@ function TeachersContent() {
               ))}
             </ul>
           )}
+        </section>
+      )}
+
+      {section === "crear-recompensa" && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800 sm:p-6">
+          <h2 className="mb-4 text-xl font-bold text-slate-900 dark:text-white">Crear Nueva Recompensa</h2>
+          <form
+            onSubmit={async (e: React.FormEvent) => {
+              e.preventDefault()
+              const formData = new FormData(e.target as HTMLFormElement)
+              const name = formData.get("name") as string
+              const description = formData.get("description") as string
+              const icon = formData.get("icon") as string
+              const category = formData.get("category") as string
+              const costStr = formData.get("cost") as string
+              const cost = Number(costStr)
+
+              if (!name?.trim() || !description?.trim() || !icon?.trim() || !category || cost === undefined || cost === null || isNaN(cost) || cost <= 0) {
+                alert("Todos los campos son obligatorios y el costo debe ser un número positivo")
+                return
+              }
+              try {
+                const res = await fetch("/api/teacher/rewards", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ name: name.trim(), description: description.trim(), icon: icon.trim(), category, cost: cost })
+                })
+                const data = await res.json()
+                if (!res.ok) throw new Error(data.error || "Error al crear la recompensa")
+                alert("Recompensa creada exitosamente!")
+                router.replace("/docentes")
+              } catch (err) {
+                alert(err instanceof Error ? err.message : "Error al crear la recompensa")
+              }
+            }}
+          >
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-gray-300">Nombre</label>
+                <input
+                  type="text"
+                  name="name"
+                  required
+                  className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:bg-gray-700 dark:text-white"
+                  placeholder="Ej: Examen gratis"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-gray-300">Costo (pts)</label>
+                <input
+                  type="number"
+                  name="cost"
+                  min="1"
+                  required
+                  className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:bg-gray-700 dark:text-white"
+                  placeholder="Ej: 100"
+                  value={cost}
+                  onChange={(e) => setCost(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-gray-300">Descripción</label>
+                <textarea
+                  name="description"
+                  rows={2}
+                  className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:bg-gray-700 dark:text-white"
+                  placeholder="Ej: El estudiante puede rehacer el examen"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-gray-300">Icono</label>
+                <select
+                  name="icon"
+                  className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:bg-gray-700 dark:text-white"
+                  value={icon}
+                  onChange={(e) => setIcon(e.target.value)}
+                >
+                  <option value="" disabled>Seleccionar icono</option>
+                  <option value="Gift">Gift</option>
+                  <option value="HelpCircle">HelpCircle</option>
+                  <option value="CheckCircle">CheckCircle</option>
+                  <option value="Clock">Clock</option>
+                  <option value="Trophy">Trophy</option>
+                  <option value="Coins">Coins</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-gray-300">Categoría</label>
+              <select
+                name="category"
+                required
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:bg-gray-700 dark:text-white"
+              >
+                <option value="">Seleccionar categoría</option>
+                <option value="EXAMEN">Examen</option>
+                <option value="ASISTENCIA">Asistencia</option>
+                <option value="ENTREGA">Entrega</option>
+                <option value="OTRO">Otros</option>
+              </select>
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="submit"
+                className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+              >
+                Crear Recompensa
+              </button>
+              <button
+                type="button"
+                onClick={() => router.replace("/docentes")}
+                className="rounded-lg border border-slate-300 px-6 py-2 text-sm font-medium text-slate-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                Cancelar
+              </button>
+            </div>
+          </form>
         </section>
       )}
     </div>

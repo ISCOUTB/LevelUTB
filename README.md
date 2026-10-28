@@ -72,12 +72,12 @@ Next.js App Router (src/app/layout.tsx -> AppShell -> Sidebar/Header)
 | `/api/curriculum` | GET | STUDENT | GET malla por semestre con estado (aprobado/en curso/bloqueado/disponible), prerrequisitos y créditos. |
 | `/api/stats` | GET | STUDENT | Lee la malla y el historial por la fuente académica externa (`getAcademicSource()`) y el resto desde PostgreSQL: créditos aprobados/totales, promedio (`academic.ts`), avance por semestre y categoría, puntos/nivel, tendencia e insignias obtenidas. |
 | `/api/missions` | GET, POST | STUDENT | GET disponibles (por `level`) + estado del estudiante. POST crear/avanzar con `evidence`; si `autoVerify` usa `domain/missionVerificationService.ts` (vía `prismaMissionRepository`), si no queda `EN_REVISION`. El catálogo actual son 13 misiones de onboarding (`PLANIFICACION`/`ACADEMICO`), todas `autoVerify` sin `verificationKey`. |
-| `/api/rewards` | GET, POST | STUDENT | GET catálogo activo + puntos totales + canjes + cursos del periodo actual para elegir `courseId`. POST solicitar canje `{ rewardId, courseId }` (descuenta puntos, estado `SOLICITADO`). |
+| `/api/rewards` | GET, POST | STUDENT | GET recompensas activas (globales y creadas por docentes) + puntos totales + canjes + cursos oficiales del periodo actual para elegir `courseId`. POST solicitar canje `{ rewardId, courseId, evidence? }` (descuenta puntos, estado `SOLICITADO`). |
 | `/api/badges` | GET | STUDENT | Catálogo de insignias para el panel de tarjetas base y Plus. El origen se resuelve con `getBadgeSource()` y la respuesta incluye `origin{source, catalogVersion, degraded}`. |
 | `/api/notifications` | GET, PATCH, DELETE | ambos | Listar, marcar leída (`isRead`), borrar. Tipos: `INFO, WARNING, ALERTA_RIESGO, LOGRO_OBTENIDO, MISION_DISPONIBLE, RECORDATORIO, SOLICITUD_RECOMPENSA`. |
 | `/api/recommendations` | GET, PATCH | STUDENT | GET genera bajo demanda con `generateRecommendations()`. PATCH aceptar/descartar (`isAccepted`, `isRead`). |
 | `/api/teacher` | GET, PATCH | TEACHER | GET el curso demo asignado (`C09A`, vía `TeacherCourse` por `periodo YYYY-1/2`) + estudiantes con promedio/créditos/racha/riesgo e insignias con contador de progreso. PATCH revisar misión (aprobar/devolver con `reviewComment`, otorga puntos). |
-| `/api/teacher/rewards` | GET, PATCH | TEACHER | GET solicitudes de canje de sus cursos + historial. PATCH aprobar/rechazar (`APROBADO/RECHAZADO`, `reviewNote`). |
+| `/api/teacher/rewards` | GET, POST, PATCH | TEACHER | GET solicitudes de canje de sus cursos, historial y recompensas propias. POST crea una recompensa para un curso asignado. PATCH aprueba/rechaza (`APROBADO/RECHAZADO`, `reviewNote`). |
 | `/api/teacher/notify` | POST | TEACHER | `{ studentId, message/cursos }` envía notificación de ruta recomendada y guarda `Activity{RUTA_RECOMENDADA_DOCENTE}`. |
 
 Errores estándar: `401 { error: "No autorizado" }` sin sesión, `403` rol incorrecto, `404` perfil/recurso no encontrado.
@@ -172,11 +172,13 @@ Además de las misiones, al cerrar cada semestre el estudiante recibe **puntos b
 
 ### Las recompensas: gastar puntos con respaldo docente
 
-Las recompensas son beneficios académicos reales (exonerar un parcial, extender una entrega, limpiar una falta) que se compran con puntos. Funcionan así:
+Las recompensas son beneficios académicos reales (exonerar un parcial, extender una entrega, limpiar una falta) que se compran con puntos. Pueden ser globales o creadas por un docente para uno de sus cursos asignados. Funcionan así:
 
 1. El estudiante elige una recompensa y el **curso donde quiere usarla** (debe ser del periodo actual).
 2. El sistema valida que tenga puntos suficientes, que no supere el límite de usos y que no tenga ya una solicitud pendiente igual; luego **descuenta los puntos de inmediato** y deja la solicitud *pendiente*.
 3. Un docente de ese curso la **aprueba o la rechaza**: si la aprueba, el beneficio queda activo (con fecha de vencimiento, 30 días); si la rechaza, **los puntos se devuelven automáticamente**.
+
+Los docentes pueden crear recompensas indicando nombre, descripción, icono, categoría y costo. El servidor valida que el curso seleccionado pertenezca a sus asignaciones antes de guardarla. Las solicitudes se filtran por curso y el docente solo puede revisar solicitudes de estudiantes matriculados en sus cursos.
 
 ### El catálogo: quién manda
 
@@ -460,7 +462,7 @@ npm run test:unit              # Tests unitarios (dominio + lib)
 
 ### Recompensas
 
-- **Reward**: `name, icon, category EXAMEN/ASISTENCIA/ENTREGA/OTRO, cost, maxUses?, isActive`.
+- **Reward**: `name, icon, category EXAMEN/ASISTENCIA/ENTREGA/OTRO, cost, maxUses?, isActive, teacherId?, courseId?`.
 - **StudentReward**: `{ studentId, rewardId, courseId }` único, `status SOLICITADO/APROBADO/RECHAZADO/EXPIRADO/USADO`, `pointsSpent, requestedAt, reviewedBy/At, reviewNote, evidence, expiresAt`.
 
 ### Notificaciones, actividad, recomendaciones, riesgo
@@ -488,8 +490,9 @@ npm run test:unit              # Tests unitarios (dominio + lib)
 | Comando | Resultado |
 |---------|-----------|
 | npm run lint | ✅ PASS (0 errores, 0 advertencias) |
-| npm run test:unit | ✅ PASS (62 pruebas) |
+| npm run test:unit | ✅ PASS (66 pruebas) |
 | npx prisma validate | ✅ PASS (esquema válido) |
+| npx tsc --noEmit | ✅ PASS |
 
 ### Coherencia académica y limpieza de seeds
 - **Seed de insignias unificado**: `prisma/seed.ts` siembra las 8 del catálogo canónico (`scripts/badges.json` v2026.3); `db:sync-badges` purga las fuera de catálogo.

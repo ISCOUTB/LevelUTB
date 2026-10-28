@@ -13,6 +13,8 @@ export interface Reward {
   cost: number
   isActive: boolean
   maxUses: number | null
+  teacherId?: string // Profesor que creó esta recompensa (opcional para recompensas globales)
+  courseId?: string | null // Curso asociado a la recompensa
   createdAt: Date
   updatedAt: Date
 }
@@ -160,6 +162,8 @@ export function toRewardDomain(prismaReward: PrismaReward): Reward {
     cost: prismaReward.cost,
     isActive: prismaReward.isActive,
     maxUses: prismaReward.maxUses,
+    teacherId: prismaReward.teacherId ?? undefined,
+    courseId: prismaReward.courseId ?? undefined,
     createdAt: prismaReward.createdAt,
     updatedAt: prismaReward.updatedAt,
   }

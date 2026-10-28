@@ -3,11 +3,15 @@ import type { Reward, StudentReward, EnrolledCourse, RewardsStats, TeacherReward
 import type { RewardRepository, StudentRewardRepository, PointRepository, RewardServiceRepository } from "@/domain/rewards/repositories/rewardRepository"
 import { toRewardDomain, toStudentRewardDomain } from "@/domain/rewards/types"
 import { buildRewardWithEligibility, buildStats, getCurrentPeriod, validateTeacherAssignment } from "@/domain/rewards/rewardRules"
+import type { RewardCategory } from "@prisma/client"
 
 export class PrismaRewardRepository implements RewardRepository {
-  async findActiveRewards(): Promise<Reward[]> {
+  async findActiveRewards(teacherId?: string): Promise<Reward[]> {
+    const where = teacherId
+      ? { isActive: true, teacherId }
+      : { isActive: true, teacherId: null }
     const rewards = await prisma.reward.findMany({
-      where: { isActive: true },
+      where,
       orderBy: { cost: "asc" },
     })
     return rewards.map(toRewardDomain)
@@ -16,6 +20,39 @@ export class PrismaRewardRepository implements RewardRepository {
   async findById(rewardId: string): Promise<Reward | null> {
     const reward = await prisma.reward.findUnique({ where: { id: rewardId } })
     return reward ? toRewardDomain(reward) : null
+  }
+
+  async createTeacherReward(data: {
+    name: string
+    description: string
+    icon: string
+    category: RewardCategory
+    cost: number
+    teacherId: string
+    courseId: string
+  }): Promise<Reward> {
+    const reward = await prisma.reward.create({
+      data: {
+        name: data.name,
+        description: data.description,
+        icon: data.icon,
+        category: data.category,
+        cost: data.cost,
+        teacherId: data.teacherId,
+        courseId: data.courseId,
+        isActive: true,
+        maxUses: null,
+      },
+    })
+    return toRewardDomain(reward)
+  }
+
+  async getTeacherRewards(teacherUserId: string): Promise<Reward[]> {
+    const rewards = await prisma.reward.findMany({
+      where: { teacherId: teacherUserId, isActive: true },
+      orderBy: { cost: "asc" },
+    })
+    return rewards.map(toRewardDomain)
   }
 }
 
@@ -186,8 +223,8 @@ export class PrismaRewardServiceRepository implements RewardServiceRepository {
     totalPoints: number
     stats: RewardsStats
   }> {
-    const [rewards, studentRewards, totalPoints, profile] = await Promise.all([
-      this.rewardRepository.findActiveRewards(),
+    const [allRewards, studentRewards, totalPoints, profile] = await Promise.all([
+      prisma.reward.findMany({ where: { isActive: true }, orderBy: { cost: "asc" } }),
       this.studentRewardRepository.findByStudentId(studentId),
       this.pointRepository.sumByUserId(studentId, period),
       prisma.studentProfile.findUnique({
@@ -204,6 +241,9 @@ export class PrismaRewardServiceRepository implements RewardServiceRepository {
         },
       }),
     ])
+
+    // Use all rewards (both global and teacher-created)
+    const rewards = allRewards.map(toRewardDomain)
 
     const { filterRewardEligibleCourses } = await import("@/lib/academic")
     const enrolledCourses = filterRewardEligibleCourses(profile?.enrollments ?? [], period)
@@ -331,6 +371,22 @@ export class PrismaRewardServiceRepository implements RewardServiceRepository {
     })
 
     return studentReward
+  }
+
+  async createTeacherReward(data: {
+    name: string
+    description: string
+    icon: string
+    category: RewardCategory
+    cost: number
+    teacherId: string
+    courseId: string
+  }): Promise<Reward> {
+    return this.rewardRepository.createTeacherReward(data)
+  }
+
+  async getTeacherCustomRewards(teacherUserId: string): Promise<Reward[]> {
+    return this.rewardRepository.getTeacherRewards(teacherUserId)
   }
 
   async getTeacherRewards(teacherUserId: string): Promise<TeacherRewardsResponse> {

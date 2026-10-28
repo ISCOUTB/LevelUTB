@@ -14,7 +14,8 @@ import {
   Gift,
   Clock,
   CheckCircle,
-  Medal
+  Medal,
+  Plus
 } from "lucide-react"
 import { useSession } from "next-auth/react"
 import { Suspense, useEffect, useState } from "react"
@@ -164,6 +165,7 @@ function SidebarContent({ isOpen, onClose }: Readonly<{ isOpen: boolean; onClose
                   {teacherLink(buildTeacherHref(null), "Mis estudiantes", Users, pathname === "/docentes" && activeSection === "cursos", teacherCourses.length)}
                   {teacherLink(buildTeacherHref("misiones"), "Misiones por revisar", Clock, pathname === "/docentes" && activeSection === "misiones", pendingMissions)}
                   {teacherLink(buildTeacherHref("recompensas"), "Recompensas por revisar", Gift, pathname === "/docentes" && activeSection === "recompensas", pendingRewards)}
+                  {teacherLink("/docentes?section=crear-recompensa", "Crear recompensa", Plus, teacherSection === "crear-recompensa")}
                   {teacherLink(buildTeacherHref("historial"), "Historial", CheckCircle, pathname === "/docentes" && activeSection === "historial", reviewedItems)}
                   {teacherLink("/docentes/insignias", "Insignias", Medal, pathname === "/docentes/insignias")}
                 </div>

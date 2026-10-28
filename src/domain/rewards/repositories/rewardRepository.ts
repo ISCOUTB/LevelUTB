@@ -1,8 +1,19 @@
 import type { PointSourceEnum, Reward, StudentReward, EnrolledCourse, RewardsStats, TeacherRewardsResponse, RedemptionInput, ReviewInput } from "../types"
+import type { RewardCategory } from "@prisma/client"
 
 export interface RewardRepository {
   findActiveRewards(): Promise<Reward[]>
   findById(rewardId: string): Promise<Reward | null>
+  createTeacherReward(data: {
+    name: string
+    description: string
+    icon: string
+    category: RewardCategory
+    cost: number
+    teacherId: string
+    courseId: string
+  }): Promise<Reward>
+  getTeacherRewards(teacherUserId: string): Promise<Reward[]>
 }
 
 export interface StudentRewardRepository {
@@ -31,5 +42,15 @@ export interface RewardServiceRepository {
   }>
   redeemReward(studentId: string, input: RedemptionInput): Promise<StudentReward>
   getTeacherRewards(teacherUserId: string): Promise<TeacherRewardsResponse>
+  createTeacherReward(data: {
+    name: string
+    description: string
+    icon: string
+    category: RewardCategory
+    cost: number
+    teacherId: string
+    courseId: string
+  }): Promise<Reward>
+  getTeacherCustomRewards(teacherUserId: string): Promise<Reward[]>
   reviewReward(teacherUserId: string, input: ReviewInput): Promise<{ success: boolean; status: "APROBADO" | "RECHAZADO" }>
 }

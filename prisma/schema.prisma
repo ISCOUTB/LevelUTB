@@ -527,6 +527,8 @@ model Reward {
   cost        Int           // Costo en puntos
   isActive    Boolean       @default(true)
   maxUses     Int?          // Límite de usos por estudiante (null = ilimitado)
+  teacherId   String?       // Profesor que creó esta recompensa (opcional para recompensas globales)
+  courseId    String?       // Curso asociado a la recompensa
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 

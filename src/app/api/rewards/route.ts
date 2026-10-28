@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { getGetStudentRewardsUseCase, getRedeemRewardUseCase, getCurrentPeriod } from "@/application/rewards/rewardFactory"
+import { prisma } from "@/lib/prisma"
+import { buildStats, buildRewardWithEligibility } from "@/domain/rewards/rewardRules"
 
 type StudentSession = { userId: string } | { error: NextResponse }
+type RewardTeacher = { id: string; name: string | null }
+type RewardTeacherCourse = { id: string; code: string; name: string; semester: number; period: string }
 
 async function requireStudentSession(): Promise<StudentSession> {
   const session = await auth()
@@ -49,11 +53,65 @@ export async function GET() {
     const getStudentRewardsUseCase = getGetStudentRewardsUseCase()
     const result = await getStudentRewardsUseCase.execute(userId, period)
 
-    return NextResponse.json({
-      rewards: result.rewards.map((reward) => {
+    // Get teacher info for rewards
+    const rewardsWithTeacher = await Promise.all(
+      result.rewards.map(async (reward) => {
+        if (reward.teacherId) {
+          const teacher = await prisma.user.findUnique({
+            where: { id: reward.teacherId },
+            select: { id: true, name: true }
+          })
+          // Find which course the teacher teaches
+          const teacherProfile = await prisma.teacherProfile.findUnique({
+            where: { userId: reward.teacherId },
+            include: {
+              assignedCourses: {
+                include: {
+                  course: {
+                    include: {
+                      semester: true
+                    }
+                  }
+                },
+                take: 1
+              }
+            }
+          })
+          const teacherCourse = teacherProfile?.assignedCourses?.[0]?.course
+            ? {
+                id: teacherProfile.assignedCourses[0].course.id,
+                code: teacherProfile.assignedCourses[0].course.code,
+                name: teacherProfile.assignedCourses[0].course.name,
+                semester: teacherProfile.assignedCourses[0].course.semester.number,
+                period: teacherProfile.assignedCourses[0].period
+              }
+            : null
+          return { ...reward, teacher, teacherCourse }
+        }
+        return reward
+      })
+    )
+
+    // Filter to only teacher-created rewards
+    const teacherRewards = rewardsWithTeacher.filter(
+      (reward): reward is typeof reward & { teacherId: string; teacher: RewardTeacher | null; teacherCourse: RewardTeacherCourse | null } =>
+        Boolean(reward.teacherId)
+    )
+
+    const mappedRewards = teacherRewards.map((reward) => {
         const studentReward = result.studentRewards.find((sr) => sr.rewardId === reward.id)
         const usesCount = result.studentRewards.filter((sr) => sr.rewardId === reward.id && sr.status !== "RECHAZADO").length
         const canUse = reward.maxUses === null || usesCount < reward.maxUses
+
+        const teacherCourse = reward.teacherCourse
+        const rewardCourse = teacherCourse
+          ? {
+              id: teacherCourse.id,
+              code: teacherCourse.code,
+              name: teacherCourse.name,
+              semester: teacherCourse.semester,
+            }
+          : null
 
         return {
           id: reward.id,
@@ -62,7 +120,15 @@ export async function GET() {
           icon: reward.icon,
           category: reward.category,
           cost: reward.cost,
+          isActive: reward.isActive,
           maxUses: reward.maxUses,
+          teacherId: reward.teacherId,
+          courseId: reward.courseId,
+          createdAt: reward.createdAt,
+          updatedAt: reward.updatedAt,
+          teacher: reward.teacher,
+          teacherCourse,
+          course: rewardCourse,
           canAfford: result.totalPoints >= reward.cost,
           canUse,
           usesCount,
@@ -82,13 +148,19 @@ export async function GET() {
             },
           } : null,
         }
-      }),
+      })
+
+    const eligibleRewards = teacherRewards.map((reward) =>
+      buildRewardWithEligibility(reward, result.studentRewards, result.totalPoints)
+    )
+    const stats = buildStats(eligibleRewards, result.studentRewards)
+    stats.totalPoints = result.totalPoints
+
+    return NextResponse.json({
+      rewards: mappedRewards,
       enrolledCourses: result.enrolledCourses,
       currentPeriod: period,
-      stats: {
-        ...result.stats,
-        totalPoints: result.totalPoints,
-      },
+      stats,
     })
   } catch (error) {
     console.error("Error fetching rewards:", error)
