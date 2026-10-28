@@ -1,6 +1,6 @@
 # LevelUTB — Documentación de Arquitectura (arc42)
 
-> Fuente de verdad del código: `README.md` (funcionalidad y operación) y `docs/README.md` (índice de documentación).
+> Fuentes de referencia: `README.md` (funcionalidad y operación) y este documento (arquitectura). La estructura descrita aquí debe mantenerse sincronizada con el código de `src/`, `prisma/` y `utb-external-api/`.
 > Stack: Next.js 16.3.2 (App Router) · React 19 · Tailwind CSS 4 · PostgreSQL + Prisma 7.9.1 · NextAuth 5 beta.
 > Estado: prototipo. El único acceso posible es con las cuentas de demostración creadas por el seed; no hay alta de cuentas ni registro de estudiantes. Ver la sección 11 para fallas corregidas, deuda pendiente y supuestos abiertos.
 
@@ -28,7 +28,7 @@ Plataforma web gamificada para que el estudiante de la Universidad Tecnológica 
 
 1. **Usabilidad por rol**: navegación distinta estudiante/docente (`Sidebar.tsx`, `Header.tsx`), responsive y modo claro/oscuro. Login con correo y contraseña, con las credenciales demo visibles en la propia pantalla.
 2. **Seguridad**: dominio `@utb.edu.co` con regex exacta (`institutionalEmail.ts`), bcrypt para contraseñas, política de contraseña en el alta docente, y autorización por rol en cada endpoint.
-3. **Mantenibilidad**: dominio aislado en `src/domain/*` (reglas puras) y `src/lib/*` (24 módulos de soporte), 25 modelos Prisma como contrato de datos, 62 tests unitarios.
+3. **Mantenibilidad**: dominio aislado en `src/domain/*` (reglas puras) y `src/lib/*` (24 módulos de soporte), 25 modelos Prisma como contrato de datos, 66 tests unitarios.
 4. **Resiliencia externa**: con `UNIVERSITY_API_ENABLED="true"` y la API externa caída, las rutas académicas responden `503` en vez de servir datos parciales.
 5. **Integridad académica**: inscripciones `MANUAL` del estudiante no contaminan promedio ni misión `APROBAR_CREDITOS_SEMESTRE` (mitigación parcial, ver la sección 11).
 
@@ -121,7 +121,7 @@ flowchart TB
 | Admin periodos | `src/app/api/admin/academic-periods/route.ts`, `src/app/api/admin/academic-periods/[code]/close/route.ts` | Consulta de periodos y cierre ADMIN (`closeAcademicPeriod`); 404 si el periodo o el siguiente no existen, 409 en conflicto |
 | Estudiante | `src/app/api/student`, `src/app/api/curriculum`, `src/app/api/stats` | Perfil+racha, malla con estados por prerrequisito, agregados académicos. `student` y `curriculum` leen vía `getAcademicSource()` |
 | Gamificación | `src/app/api/missions`, `src/app/api/badges` | Misiones con verificación automática o manual; panel de insignias base/Plus servido por la API institucional |
-| Recompensas | `src/app/api/rewards`, `src/app/api/teacher/rewards` | Catálogo, solicitud `{rewardId, courseId}` (`@@unique[studentId,rewardId,courseId]`, débito `CANJE_RECOMPENSA`), aprobación docente |
+| Recompensas | `src/app/api/rewards`, `src/app/api/teacher/rewards` | Catálogo global y docente, creación docente por curso asignado, solicitud `{rewardId, courseId, evidence?}` (`@@unique[studentId,rewardId,courseId]`, débito `CANJE_RECOMPENSA`) y aprobación docente |
 | Acompañamiento | `src/app/api/teacher`, `src/app/api/teacher/notify` | Estudiantes por curso del periodo, revisión de misiones, ruta recomendada + `Activity` |
 | Transversales | `src/app/api/notifications`, `src/app/api/recommendations` | Notificaciones y motor de recomendaciones |
 | Reglas de dominio | `src/domain/missions/missionRules.ts`, `src/domain/missions/missionVerificationService.ts`, `src/domain/rewards/rewardRules.ts` | Validación y auto-verificación de misiones; reglas de canje. Sin dependencia de Prisma |
@@ -141,11 +141,11 @@ flowchart TB
 | `/malla` | `GET /api/curriculum` | Estados `APROBADO/EN_CURSO/BLOQUEADO/DISPONIBLE` y prerrequisitos faltantes. Solo lectura |
 | `/misiones` | `GET/POST /api/missions` | Evidencia, estados `PENDIENTE→…→VERIFICADA/RECHAZADA` |
 | `/logros` | `GET /api/badges` | Tarjetas de cuatro categorías base y sus variantes Plus + chip del origen del catálogo |
-| `/recompensas` | `GET/POST /api/rewards` | Canje atado a `courseId`, estados `SOLICITADO→APROBADO→USADO/EXPIRADO` |
+| `/recompensas` | `GET/POST /api/rewards` | Filtros de catálogo, selección de curso oficial del periodo, evidencia opcional y canje atado a `courseId`; estados `SOLICITADO→APROBADO/RECHAZADO→USADO/EXPIRADO` |
 | `/estadisticas` | `GET /api/stats` | Tendencia y distribución por semestre |
 | `/notificaciones` | `GET/PATCH/DELETE /api/notifications` | Marcar leída, seguir `link` |
 | `/perfil` | `GET /api/student` | Resumen académico, nivel e insignias recientes |
-| `/docentes`, `/docentes/insignias`, `/perfil-docente` | `/api/teacher*` | Cursos interactivos, insignias por categoría, revisar misión/canje y enviar ruta |
+| `/docentes`, `/docentes/insignias`, `/perfil-docente` | `/api/teacher*` | Cursos interactivos, insignias por categoría, crear recompensas para cursos asignados, revisar misión/canje y enviar ruta |
 
 ---
 
@@ -202,15 +202,18 @@ sequenceDiagram
     participant R as /recompensas
     participant A as POST /api/rewards
     actor Do as Docente
-    E->>R: elige reward + courseId del periodo
-    R->>A: {rewardId, courseId}
+    E->>R: filtra reward y elige courseId del periodo
+    R->>A: {rewardId, courseId, evidence?}
     A->>A: valida puntos, maxUses, curso del periodo, pendiente por curso
     A->>A: Point CANJE_RECOMPENSA negativo + StudentReward SOLICITADO
+    Do->>A: GET /api/teacher/rewards
     Do->>A: PATCH /api/teacher/rewards
     A->>A: APROBADO / RECHAZADO (+ reviewNote)
 ```
 
-Unicidad `@@unique([studentId, rewardId, courseId])` (`schema.prisma:563`): permite `maxUses>1` en cursos distintos; el conteo de usos previos sigue siendo global por `rewardId` (ver la sección 11).
+El docente puede crear recompensas con `POST /api/teacher/rewards` indicando nombre, descripción, icono, categoría, costo y `courseId`. El servidor exige que el curso pertenezca a una asignación del docente. Las recompensas creadas guardan `teacherId` y `courseId`; las globales mantienen ambos campos nulos.
+
+Unicidad `@@unique([studentId, rewardId, courseId])` (`schema.prisma:565`): evita solicitudes duplicadas para el mismo curso y permite reutilizar la recompensa en cursos distintos; el conteo de usos previos sigue siendo global por `rewardId` (ver la sección 11).
 
 Periodo actual en todas las rutas: `YYYY-1` (ene–jun) / `YYYY-2` (jul–dic), filtrando `Enrollment.semesterCode` y `TeacherCourse.period`. La lógica está centralizada en `src/lib/period.ts`; queda una implementación local equivalente en `missionVerificationService.ts:88` (ver la sección 11).
 
@@ -253,7 +256,7 @@ flowchart LR
 - **Integridad académica**: `source UNIVERSITY/MANUAL`; promedio y `APROBAR_CREDITOS_SEMESTRE` filtran `MANUAL` sin aval.
 - **Misiones automáticas**: `verificationKey/Value` interpretados por `src/domain/missions/missionVerificationService.ts` (créditos, promedio, racha, curso). Las misiones del catálogo actual son todas `autoVerify`.
 - **UX**: tarjetas `rounded-xl border bg-white dark:bg-gray-800`, acento azul/cian, `next-themes` (default light), responsive móvil/escritorio. `/login` sin `Sidebar/Header` (`AppShell`).
-- **Calidad de código**: `npm run lint` (ESLint next+TS; 0 errores, 0 advertencias), `npm run test:unit` (62 pruebas unitarias sobre `src/domain` y `src/lib`), Prettier para formato.
+- **Calidad de código**: `npm run lint` (ESLint next+TS; 0 errores, 0 advertencias), `npm run test:unit` (66 pruebas unitarias sobre `src/domain`, `src/lib` y `src/application`), `npx tsc --noEmit` y `npm run build`.
 - **Fuente académica**: `getAcademicSource()` se resuelve en cada request. Con la API externa caída, `HttpAcademicSource` lanza `EXTERNAL_API_UNAVAILABLE` y `curriculum`/`student` responden `503`, para que el fallo sea distinguible de un error de la app.
 - **Fuente de insignias**: `HttpBadgeSource` consume exclusivamente `utb-external-api`. Si la fuente no responde, `/api/badges` informa indisponibilidad; un 404 externo devuelve catálogo vacío porque el estudiante no está registrado.
 
@@ -298,7 +301,7 @@ flowchart LR
 | Disponibilidad académica | La API externa es obligatoria para malla, historial e insignias; una caída responde con error controlado | Implementado |
 | Modificabilidad | Nueva regla de misión = nuevo `verificationKey` en `src/domain/missions/missionVerificationService.ts` + test en `src/domain/missions/missionRules.test.ts` | Vigente |
 | Modificabilidad | Nueva categoría de fuente institucional = una implementación de `AcademicSource` o `BadgeSource` | Implementado |
-| Testeabilidad | 62 pruebas unitarias sobre `src/domain` y `src/lib` (`npm run test:unit`, todas aprobadas) | Implementado; falta integración API |
+| Testeabilidad | 66 pruebas unitarias sobre `src/domain`, `src/lib` y `src/application` (`npm run test:unit`, todas aprobadas) | Implementado; falta integración API |
 
 ---
 
@@ -310,7 +313,7 @@ flowchart LR
 |---|---|---|
 | F1 | El login aceptaba cualquier sufijo con `endsWith` del dominio institucional | `src/lib/auth.ts:36` delega en `normalizeInstitutionalEmail`, que usa regex exacta `/^[a-z0-9._-]+@utb\.edu\.co$/` (`institutionalEmail.ts:10`) |
 | F2 | Malla e insignias mezcladas entre Prisma y API externa, con fuentes divergentes | `getAcademicSource()` y `getBadgeSource()` resuelven una única fuente HTTP; la respuesta de `/api/badges` incluye `origin{source, catalogVersion, degraded}` |
-| F3 | `StudentReward @@unique[studentId,rewardId]` bloqueaba `maxUses:2` | `prisma/schema.prisma:563` → `@@unique([studentId, rewardId, courseId])` |
+| F3 | `StudentReward @@unique[studentId,rewardId]` bloqueaba `maxUses:2` | `prisma/schema.prisma:565` → `@@unique([studentId, rewardId, courseId])` |
 | F4 | Débitos de canje con `source:MISION_COMPLETADA` | `prismaRewardRepository.ts:287` usa `CANJE_RECOMPENSA` (`schema.prisma:293`) |
 | F5 | `RiskAlert.studentId` sin FK (huérfanos) | `schema.prisma:484-487` relation + cascade; `StudentProfile.riskAlerts` (`schema.prisma:67`) |
 | F6 | Promedio y `APROBAR_CREDITOS_SEMESTRE` farmeables con `MANUAL` | `src/lib/academic.ts:88-92` y `src/domain/missions/missionVerificationService.ts:174` filtran `source !== "MANUAL"` |
@@ -346,7 +349,7 @@ flowchart LR
 | `MANUAL` / `UNIVERSITY` | `Enrollment.source`: inscripción cargada por el estudiante vs registro oficial de la institución; solo `UNIVERSITY` cuenta para métricas verificables |
 | Misión | Reto (`ACADEMICO, PLANIFICACION, MEJORA_CONTINUA, HABITO_ESTUDIO, IMPACTO_SOCIAL`); `StudentMission.status`: `PENDIENTE→EN_PROGRESO→EN_REVISION→COMPLETADA/VERIFICADA/RECHAZADA` |
 | Insignia | Panel base/Plus con `Badge.category`: `PROGRESO, HABITO, COMPETENCIA, IMPACTO_SOCIAL`. El catálogo externo contiene ocho insignias: cuatro categorías base y cuatro variantes Plus |
-| Recompensa / canje | `Reward.category`: `EXAMEN, ASISTENCIA, ENTREGA, OTRO`; débito `PointSource.CANJE_RECOMPENSA`; `StudentReward.status`: `SOLICITADO→APROBADO/RECHAZADO→USADO/EXPIRADO`; unicidad por `(studentId, rewardId, courseId)` |
+| Recompensa / canje | `Reward.category`: `EXAMEN, ASISTENCIA, ENTREGA, OTRO`; recompensa global o docente (`teacherId?`, `courseId?`); débito `PointSource.CANJE_RECOMPENSA`; `StudentReward.status`: `SOLICITADO→APROBADO/RECHAZADO→USADO/EXPIRADO`; unicidad por `(studentId, rewardId, courseId)` |
 | Racha | Días consecutivos con `Activity`; `{current, best, activeToday}` |
 | Nivel | 1 Novato (0) · 2 Aprendiz (500) · 3 Explorador (1500) · 4 Avanzado (3000) · 5 Maestro (5000) · 6 Leyenda (8000) |
 | Riesgo | `RiskAlert` (FK a `StudentProfile`): `PREREQUISITO_FALTANTE, ATRASO_CREDITOS, BAJO_PROMEDIO, CURSO_EN_RIESGO, SEMESTRE_RETRASADO` (`BAJA→CRITICA`) |
