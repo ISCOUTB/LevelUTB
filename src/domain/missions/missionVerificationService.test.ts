@@ -25,11 +25,12 @@ test("cappedPercent nunca llega a 100 en parciales", () => {
   assert.equal(cappedPercent(5, -2), 0)
 })
 
-test("buildApprovedCredits deduplica por curso y solo cuenta APROBADO con curso", () => {
+test("buildApprovedCredits deduplica por curso y excluye aprobaciones manuales", () => {
   const map = buildApprovedCredits([
     { status: "APROBADO", semesterCode: "2026-1", courseId: "c1", course: { credits: 4 } },
     { status: "APROBADO", semesterCode: "2026-1", courseId: "c1", course: { credits: 4 } },
     { status: "APROBADO", semesterCode: "2026-1", courseId: "c2", course: { credits: 3 } },
+    { status: "APROBADO", semesterCode: "2026-1", courseId: "c5", source: "MANUAL", course: { credits: 3 } },
     { status: "REPROBADO", semesterCode: "2026-1", courseId: "c3", course: { credits: 3 } },
     { status: "APROBADO", semesterCode: "2026-1", courseId: "c4", course: null },
   ] as never)

@@ -50,7 +50,11 @@ export function buildApprovedCredits(
   const approvedByCourse = new Map<string, number>()
 
   for (const enrollment of enrollments) {
-    if (enrollment.status === "APROBADO" && enrollment.course) {
+    if (
+      enrollment.status === "APROBADO" &&
+      enrollment.course &&
+      enrollment.source !== "MANUAL"
+    ) {
       approvedByCourse.set(
         enrollment.courseId,
         enrollment.course.credits
@@ -186,7 +190,8 @@ function getFailedEnrollmentsForPeriod(
   return enrollments.filter(
     (enrollment) =>
       enrollment.status === "REPROBADO" &&
-      enrollment.semesterCode === period
+      enrollment.semesterCode === period &&
+      enrollment.source !== "MANUAL"
   )
 }
 
