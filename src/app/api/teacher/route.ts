@@ -317,7 +317,10 @@ export async function PATCH(request: Request) {
       })
 
       if (approved) {
-        const referenceKey = `MISSION:${studentMission.studentId}:${studentMission.missionId}:${periodCode}`
+        const referenceKey =
+          studentMission.mission.cadence === "WEEKLY"
+            ? `MISSION:${studentMission.studentId}:${studentMission.missionId}:${periodCode}:${studentMission.weekKey}`
+            : `MISSION:${studentMission.studentId}:${studentMission.missionId}:${periodCode}`
         const existingPoint = await transaction.point.findUnique({ where: { referenceKey }, select: { id: true } })
         const [weekly, period] = await Promise.all([
           transaction.point.aggregate({

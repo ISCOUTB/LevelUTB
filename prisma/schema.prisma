@@ -297,13 +297,17 @@ enum PointSource {
 
 model Mission {
   id            String       @id @default(cuid())
+  code          String?      @unique // Código estable de la plantilla (SAVIO, HABITO_RACHA_SEMANAL...)
   title         String
   description   String
   type          MissionType
+  cadence       MissionCadence @default(ONCE) // ONCE = permanente; WEEKLY = asignada cada semana
   pointsReward  Int
   autoVerify    Boolean      @default(false)
   verificationKey String?    // Clave de la regla de verificación automática (ej. APROBAR_CREDITOS_SEMESTRE)
   verificationValue String?  // Parámetro de la regla (créditos, mejora de promedio, código de curso...)
+  actionUrl     String?      // Recurso UTB que abre la misión (Savio, Banner, semilleros...)
+  actionLabel   String?      // Texto del botón que abre actionUrl
   courseId       String?
   requiredLevel Int?         // Nivel mínimo requerido
   isActive      Boolean      @default(true)
@@ -325,10 +329,16 @@ enum MissionType {
   HABITO_ESTUDIO
 }
 
+enum MissionCadence {
+  ONCE
+  WEEKLY
+}
+
 model StudentMission {
   id          String       @id @default(cuid())
   studentId   String
   missionId   String
+  weekKey     String       @default("") // Semana ISO (2026-W47) o "" para misiones permanentes
   status      MissionStatus @default(PENDIENTE)
   progress    Int          @default(0)  // 0-100
   completedAt DateTime?
@@ -342,7 +352,7 @@ model StudentMission {
   student     User         @relation(fields: [studentId], references: [id])
   mission     Mission      @relation(fields: [missionId], references: [id])
 
-  @@unique([studentId, missionId])
+  @@unique([studentId, missionId, weekKey])
   @@map("student_missions")
 }
 

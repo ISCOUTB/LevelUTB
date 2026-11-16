@@ -3,7 +3,9 @@ import type { Mission, StudentMission, VerificationProfile, VerificationResult, 
 import type { MissionRepository, StudentMissionRepository, MissionServiceRepository } from "@/domain/missions/repositories/missionRepository"
 import { toMissionDomain, toStudentMissionDomain, toMissionWithStudentStatus } from "@/domain/missions/types"
 import { verifyMission } from "@/domain/missions/missionVerificationService"
+import { buildWeeklyMissionPlan } from "@/domain/missions/weeklyMissionPlan"
 import { getCurrentPeriod } from "@/lib/period"
+import { getIsoWeekKey, getIsoWeekNumber } from "@/lib/week"
 import { canAwardMissionPoints } from "@/lib/pointRules"
 
 type DomainVerificationProfile = VerificationProfile
@@ -13,6 +15,7 @@ export class PrismaMissionRepository implements MissionRepository {
     const missions = await prisma.mission.findMany({
       where: {
         isActive: true,
+        cadence: "ONCE",
         OR: [
           { requiredLevel: null },
           { requiredLevel: { lte: studentLevel } },
@@ -54,12 +57,13 @@ export class PrismaStudentMissionRepository implements StudentMissionRepository 
     return studentMissions.map(toStudentMissionDomain)
   }
 
-  async findByStudentIdAndMissionId(studentId: string, missionId: string): Promise<StudentMission | null> {
+  async findByStudentIdAndMissionId(studentId: string, missionId: string, weekKey = ""): Promise<StudentMission | null> {
     const studentMission = await prisma.studentMission.findUnique({
       where: {
-        studentId_missionId: {
+        studentId_missionId_weekKey: {
           studentId,
           missionId,
+          weekKey,
         },
       },
       include: {
@@ -72,11 +76,12 @@ export class PrismaStudentMissionRepository implements StudentMissionRepository 
     return studentMission ? toStudentMissionDomain(studentMission) : null
   }
 
-  async create(data: { studentId: string; missionId: string; status: string; progress: number }): Promise<StudentMission> {
+  async create(data: { studentId: string; missionId: string; status: string; progress: number; weekKey?: string }): Promise<StudentMission> {
     const studentMission = await prisma.studentMission.create({
       data: {
         studentId: data.studentId,
         missionId: data.missionId,
+        weekKey: data.weekKey ?? "",
         status: data.status as "PENDIENTE",
         progress: data.progress,
       },
@@ -127,14 +132,33 @@ export class PrismaMissionServiceRepository implements MissionServiceRepository 
     missions: MissionWithStudentStatus[]
     stats: MissionsStats
   }> {
-    const [availableMissions, studentMissions] = await Promise.all([
+    const weekKey = getIsoWeekKey()
+    await this.ensureWeeklyMissions(studentId, weekKey)
+
+    const [permanentMissions, studentMissions] = await Promise.all([
       this.missionRepository.findAvailableForStudent(studentId, studentLevel),
       this.studentMissionRepository.findByStudentId(studentId),
     ])
 
-    const missions = availableMissions.map((mission) => {
-      const studentMission = studentMissions.find((sm) => sm.missionId === mission.id)
-      return toMissionWithStudentStatus(mission, studentMission ?? null)
+    const weeklyMissions = studentMissions
+      .filter(
+        (studentMission) =>
+          studentMission.weekKey === weekKey && studentMission.mission.cadence === "WEEKLY"
+      )
+      .map((studentMission) => studentMission.mission)
+
+    const missionsById = new Map<string, Mission>()
+    for (const mission of [...permanentMissions, ...weeklyMissions]) {
+      missionsById.set(mission.id, mission)
+    }
+
+    const missions = Array.from(missionsById.values()).map((mission) => {
+      const expectedWeekKey = mission.cadence === "WEEKLY" ? weekKey : ""
+      const studentMission =
+        studentMissions.find(
+          (row) => row.missionId === mission.id && row.weekKey === expectedWeekKey
+        ) ?? null
+      return toMissionWithStudentStatus(mission, studentMission)
     })
 
     const totalPointsFromMissions = studentMissions
@@ -153,17 +177,81 @@ export class PrismaMissionServiceRepository implements MissionServiceRepository 
     }
   }
 
-  async acceptMission(studentId: string, missionId: string): Promise<StudentMission> {
+  /**
+   * Asigna al estudiante las misiones de la semana ISO actual.
+   *
+   * Es idempotente: `weekKey` forma parte de la llave única, así que abrir
+   * /misiones varias veces no duplica asignaciones. Las de hábito se repiten
+   * cada semana; el recurso rota y la adaptativa depende de los datos del
+   * estudiante.
+   */
+  private async ensureWeeklyMissions(studentId: string, weekKey: string): Promise<void> {
+    const profile = await prisma.studentProfile.findUnique({
+      where: { userId: studentId },
+      select: {
+        id: true,
+        averageGrade: true,
+        level: true,
+        enrollments: {
+          where: { semesterCode: getCurrentPeriod() },
+          select: { status: true },
+        },
+      },
+    })
+
+    if (!profile) return
+
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
+    const [recentActivity, unreadRecommendations] = await Promise.all([
+      prisma.activity.findFirst({
+        where: { userId: studentId, createdAt: { gte: threeDaysAgo } },
+        select: { id: true },
+      }),
+      prisma.recommendation.count({
+        where: { studentId: profile.id, isRead: false },
+      }),
+    ])
+
+    const plan = buildWeeklyMissionPlan({
+      averageGrade: profile.averageGrade,
+      failedCourses: profile.enrollments.filter((enrollment) => enrollment.status === "REPROBADO").length,
+      unreadRecommendations,
+      hasRecentActivity: Boolean(recentActivity),
+      level: profile.level,
+      weekNumber: getIsoWeekNumber(),
+    })
+
+    const templates = await prisma.mission.findMany({
+      where: { code: { in: plan }, isActive: true, cadence: "WEEKLY" },
+      select: { id: true, autoVerify: true },
+    })
+
+    if (templates.length === 0) return
+
+    await prisma.studentMission.createMany({
+      data: templates.map((template) => ({
+        studentId,
+        missionId: template.id,
+        weekKey,
+        status: template.autoVerify ? "EN_PROGRESO" as const : "PENDIENTE" as const,
+        progress: 0,
+      })),
+      skipDuplicates: true,
+    })
+  }
+
+  async acceptMission(studentId: string, missionId: string, weekKey = ""): Promise<StudentMission> {
     return this.studentMissionRepository.create({
       studentId,
       missionId,
+      weekKey,
       status: "PENDIENTE",
       progress: 0,
     })
   }
 
-  async startMission(studentId: string, missionId: string, metadata: string | null): Promise<StudentMission> {
-    const existingMission = await this.studentMissionRepository.findByStudentIdAndMissionId(studentId, missionId)
+  async startMission(studentId: string, missionId: string, metadata: string | null, weekKey = ""): Promise<StudentMission> {
+    const existingMission = await this.studentMissionRepository.findByStudentIdAndMissionId(studentId, missionId, weekKey)
     if (!existingMission) {
       throw new Error("Student mission not found")
     }
@@ -184,9 +272,10 @@ export class PrismaMissionServiceRepository implements MissionServiceRepository 
     studentId: string,
     missionId: string,
     evidence: string | null,
-    verificationResult: VerificationResult | null
+    verificationResult: VerificationResult | null,
+    weekKey = ""
   ): Promise<StudentMission> {
-    const existingMission = await this.studentMissionRepository.findByStudentIdAndMissionId(studentId, missionId)
+    const existingMission = await this.studentMissionRepository.findByStudentIdAndMissionId(studentId, missionId, weekKey)
     if (!existingMission) {
       throw new Error("Student mission not found")
     }
@@ -207,6 +296,37 @@ export class PrismaMissionServiceRepository implements MissionServiceRepository 
       progress: 100,
       completedAt: new Date(),
       evidence: finalEvidence,
+    })
+  }
+
+  async completeVisitMission(studentId: string, missionId: string, visitedUrl: string, weekKey = ""): Promise<StudentMission> {
+    const existingMission = await this.studentMissionRepository.findByStudentIdAndMissionId(studentId, missionId, weekKey)
+    // Una misión ya completada o verificada por un docente no se degrada al
+    // volver a abrir el recurso: la visita es idempotente.
+    if (existingMission && (existingMission.status === "COMPLETADA" || existingMission.status === "VERIFICADA")) {
+      return existingMission
+    }
+
+    const completedAt = new Date()
+    const metadata = JSON.stringify({ visitedUrl, visitedAt: completedAt.toISOString() })
+    const evidence = `Recurso UTB visitado — ${visitedUrl}`
+
+    const studentMission = existingMission
+      ? existingMission
+      : await this.studentMissionRepository.create({
+          studentId,
+          missionId,
+          weekKey,
+          status: "COMPLETADA",
+          progress: 100,
+        })
+
+    return this.studentMissionRepository.update(studentMission.id, {
+      status: "COMPLETADA",
+      progress: 100,
+      completedAt,
+      evidence,
+      metadata,
     })
   }
 

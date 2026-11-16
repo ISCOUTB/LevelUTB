@@ -1,6 +1,6 @@
 import { PrismaMissionServiceRepository } from "@/infrastructure/missions/repositories/prismaMissionRepository"
 import type { MissionServiceRepository } from "@/domain/missions/repositories/missionRepository"
-import { GetMissionsUseCase, AcceptMissionUseCase, StartMissionUseCase, CompleteMissionUseCase, VerifyMissionUseCase, AwardPointsUseCase, CreateNotificationUseCase } from "@/application/missions/use-cases/missionUseCases"
+import { GetMissionsUseCase, AcceptMissionUseCase, StartMissionUseCase, CompleteMissionUseCase, VerifyMissionUseCase, AwardPointsUseCase, CreateNotificationUseCase, VisitMissionUseCase } from "@/application/missions/use-cases/missionUseCases"
 
 let missionServiceRepository: MissionServiceRepository | null = null
 
@@ -27,6 +27,10 @@ export function getCompleteMissionUseCase(): CompleteMissionUseCase {
 
 export function getVerifyMissionUseCase(): VerifyMissionUseCase {
   return new VerifyMissionUseCase(getMissionServiceRepository())
+}
+
+export function getVisitMissionUseCase(): VisitMissionUseCase {
+  return new VisitMissionUseCase(getMissionServiceRepository())
 }
 
 export function getAwardPointsUseCase(): AwardPointsUseCase {

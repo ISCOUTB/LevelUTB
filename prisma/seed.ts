@@ -2,6 +2,7 @@
 import { PrismaClient } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import bcrypt from 'bcryptjs'
+import { MISSION_CATALOG } from './missionCatalog'
 
 const connectionString = process.env.DATABASE_URL!
 
@@ -37,7 +38,6 @@ const DEMO_INITIAL_POINTS = 2000
 
 type CourseType = 'OBLIGATORIO' | 'ELECTIVA' | 'LIBRE_ELECCION' | 'GENERAL'
 type RewardCategory = 'EXAMEN' | 'ASISTENCIA' | 'ENTREGA' | 'OTRO'
-type MissionType = 'ACADEMICO' | 'PLANIFICACION' | 'MEJORA_CONTINUA' | 'IMPACTO_SOCIAL' | 'HABITO_ESTUDIO'
 type BadgeCategory = 'PROGRESO' | 'COMPETENCIA' | 'HABITO' | 'IMPACTO_SOCIAL' | 'RENDIMIENTO'
 
 type CourseSeed = { code: string; name: string; credits: number; type: CourseType; prereq: string[] }
@@ -60,15 +60,6 @@ type RewardSeed = {
   category: RewardCategory
   cost: number
   maxUses: number | null
-}
-type MissionSeed = {
-  title: string
-  description: string
-  type: MissionType
-  pointsReward: number
-  autoVerify: boolean
-  verificationKey?: string
-  verificationValue?: string
 }
 
 // El codigo no existe en el schema (Badge no lo tiene): se usa solo como llave
@@ -355,22 +346,6 @@ const REWARDS_DATA: RewardSeed[] = [
   },
 ]
 
-const MISSIONS_DATA: MissionSeed[] = [
-  { title: 'Primer recorrido', description: 'Visita el Dashboard, Perfil, Malla, Misiones y Recompensas.', type: 'PLANIFICACION', pointsReward: 10, autoVerify: true },
-  { title: 'Conoce tu perfil', description: 'Completa los datos principales de tu perfil académico.', type: 'PLANIFICACION', pointsReward: 15, autoVerify: true },
-  { title: 'Descubre tus misiones', description: 'Consulta la lista de misiones y abre el detalle de una misión.', type: 'PLANIFICACION', pointsReward: 5, autoVerify: true },
-  { title: 'Revisa tus logros', description: 'Consulta la sección de logros o insignias.', type: 'PLANIFICACION', pointsReward: 5, autoVerify: true },
-  { title: 'Conoce las recompensas', description: 'Explora el catálogo y consulta una recompensa.', type: 'PLANIFICACION', pointsReward: 5, autoVerify: true },
-  { title: 'Encuentra un docente', description: 'Busca y consulta el perfil de un docente.', type: 'PLANIFICACION', pointsReward: 10, autoVerify: true },
-  { title: 'Consulta tus estadísticas', description: 'Abre estadísticas y revisa tu avance académico.', type: 'ACADEMICO', pointsReward: 5, autoVerify: true },
-  { title: 'Descubre una recomendación', description: 'Abre una recomendación académica personalizada.', type: 'PLANIFICACION', pointsReward: 5, autoVerify: true },
-  { title: 'Explorador universitario', description: 'Visita los ocho módulos principales de LevelUTB.', type: 'PLANIFICACION', pointsReward: 30, autoVerify: true },
-  { title: 'Ruta del estudiante', description: 'Consulta perfil, malla, misiones, logros y recompensas.', type: 'PLANIFICACION', pointsReward: 25, autoVerify: true },
-  { title: 'Conoce tu carrera', description: 'Explora diez áreas diferentes de la malla curricular.', type: 'ACADEMICO', pointsReward: 40, autoVerify: true },
-  { title: 'Cazador de oportunidades', description: 'Revisa recomendaciones, misiones y recompensas.', type: 'PLANIFICACION', pointsReward: 20, autoVerify: true },
-  { title: 'Planifica tu semestre', description: 'Consulta asignaturas, prerrequisitos y recomendaciones.', type: 'PLANIFICACION', pointsReward: 40, autoVerify: true },
-]
-
 // Unico estudiante y unico docente: el estudiante esta matriculado (CURSANDO) en
 // ASSIGNED_COURSE_CODE durante el periodo actual y esa misma materia queda
 // asignada al docente, de modo que /docentes lo lista y le muestra sus solicitudes.
@@ -517,8 +492,18 @@ async function createCatalog() {
   await Promise.all(REWARDS_DATA.map((rewardData) => prisma.reward.create({ data: rewardData })))
   console.log('✅ Recompensas creadas')
 
-  await Promise.all(MISSIONS_DATA.map((missionData) => prisma.mission.create({ data: missionData })))
-  console.log('✅ Misiones creadas')
+  await Promise.all(
+    MISSION_CATALOG.map((missionData) =>
+      prisma.mission.create({
+        data: {
+          ...missionData,
+          verificationKey: missionData.verificationKey ?? null,
+          verificationValue: missionData.verificationValue ?? null,
+        },
+      })
+    )
+  )
+  console.log('✅ Misiones permanentes y plantillas semanales creadas')
 }
 
 // El codigo no existe en el schema (Badge no lo tiene): se usa solo como llave

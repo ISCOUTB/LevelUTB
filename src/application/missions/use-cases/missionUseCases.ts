@@ -41,8 +41,20 @@ export interface CompleteMissionResult {
 
 export interface MissionActionInput {
   missionId: string
-  action: "accept" | "start" | "complete"
+  action: "accept" | "start" | "complete" | "visit"
   evidence?: string
+}
+
+export interface VisitMissionResult {
+  studentMission: {
+    id: string
+    studentId: string
+    missionId: string
+    status: string
+    progress: number
+    completedAt: Date | null
+    evidence: string | null
+  }
 }
 
 export class GetMissionsUseCase {
@@ -56,8 +68,8 @@ export class GetMissionsUseCase {
 export class AcceptMissionUseCase {
   constructor(private readonly missionServiceRepository: MissionServiceRepository) {}
 
-  async execute(studentId: string, missionId: string): Promise<AcceptMissionResult> {
-    const studentMission = await this.missionServiceRepository.acceptMission(studentId, missionId)
+  async execute(studentId: string, missionId: string, weekKey = ""): Promise<AcceptMissionResult> {
+    const studentMission = await this.missionServiceRepository.acceptMission(studentId, missionId, weekKey)
     return { studentMission }
   }
 }
@@ -65,8 +77,8 @@ export class AcceptMissionUseCase {
 export class StartMissionUseCase {
   constructor(private readonly missionServiceRepository: MissionServiceRepository) {}
 
-  async execute(studentId: string, missionId: string, metadata: string | null): Promise<StartMissionResult> {
-    const studentMission = await this.missionServiceRepository.startMission(studentId, missionId, metadata)
+  async execute(studentId: string, missionId: string, metadata: string | null, weekKey = ""): Promise<StartMissionResult> {
+    const studentMission = await this.missionServiceRepository.startMission(studentId, missionId, metadata, weekKey)
     return { studentMission }
   }
 }
@@ -78,13 +90,29 @@ export class CompleteMissionUseCase {
     studentId: string,
     missionId: string,
     evidence: string | null,
-    verificationResult: VerificationResult | null
+    verificationResult: VerificationResult | null,
+    weekKey = ""
   ): Promise<CompleteMissionResult> {
     const studentMission = await this.missionServiceRepository.completeMission(
       studentId,
       missionId,
       evidence,
-      verificationResult
+      verificationResult,
+      weekKey
+    )
+    return { studentMission }
+  }
+}
+
+export class VisitMissionUseCase {
+  constructor(private readonly missionServiceRepository: MissionServiceRepository) {}
+
+  async execute(studentId: string, missionId: string, visitedUrl: string, weekKey = ""): Promise<VisitMissionResult> {
+    const studentMission = await this.missionServiceRepository.completeVisitMission(
+      studentId,
+      missionId,
+      visitedUrl,
+      weekKey
     )
     return { studentMission }
   }

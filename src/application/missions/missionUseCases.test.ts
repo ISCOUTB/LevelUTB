@@ -9,6 +9,7 @@ import {
   GetMissionsUseCase,
   StartMissionUseCase,
   VerifyMissionUseCase,
+  VisitMissionUseCase,
 } from "./use-cases/missionUseCases"
 
 function fakeRepo(overrides = {}) {
@@ -17,6 +18,7 @@ function fakeRepo(overrides = {}) {
     acceptMission: async () => ({ id: "sm1", studentId: "s1", missionId: "m1", status: "PENDIENTE", progress: 0 }),
     startMission: async () => ({ id: "sm1", studentId: "s1", missionId: "m1", status: "EN_PROGRESO", progress: 10, metadata: null }),
     completeMission: async () => ({ id: "sm1", studentId: "s1", missionId: "m1", status: "COMPLETADA", progress: 100, completedAt: new Date(), evidence: "auto" }),
+    completeVisitMission: async () => ({ id: "sm1", studentId: "s1", missionId: "m1", status: "COMPLETADA", progress: 100, completedAt: new Date(), evidence: "visita" }),
     verifyMission: async () => ({ passed: true, progress: 100, message: "ok" }),
     awardPoints: async () => 50,
     createNotification: async () => undefined,
@@ -66,6 +68,20 @@ test("Accept/Start/Complete fluyen studentId + missionId + payload", async () =>
   assert.deepEqual(calls.accept, ["s1", "m1"])
   assert.deepEqual(calls.start, ["s1", "m1", '{"initialAverage":3.5}'])
   assert.equal((calls.complete as unknown[])[0], "s1")
+})
+
+test("VisitMission completa la misión con la URL visitada", async () => {
+  let seen: unknown[] = []
+  const repo = fakeRepo({
+    completeVisitMission: async (s: string, m: string, url: string) => {
+      seen = [s, m, url]
+      return { id: "sm1", studentId: s, missionId: m, status: "COMPLETADA", progress: 100, completedAt: new Date(), evidence: url }
+    },
+  })
+
+  const result = await new VisitMissionUseCase(repo).execute("s1", "m1", "https://savio.utb.edu.co/")
+  assert.equal(result.studentMission.status, "COMPLETADA")
+  assert.deepEqual(seen, ["s1", "m1", "https://savio.utb.edu.co/"])
 })
 
 test("VerifyMission propaga passed/progress/message sin alterar", async () => {

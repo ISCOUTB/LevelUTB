@@ -1,6 +1,7 @@
-import type { Mission as PrismaMission, StudentMission as PrismaStudentMission, StudentMission as PrismaStudentMissionModel, MissionType } from "@prisma/client"
+import type { Mission as PrismaMission, StudentMission as PrismaStudentMission, StudentMission as PrismaStudentMissionModel, MissionType, MissionCadence } from "@prisma/client"
 
 export type MissionTypeEnum = MissionType
+export type MissionCadenceEnum = MissionCadence
 export type StudentMissionStatusEnum = PrismaStudentMissionModel["status"]
 
 export interface VerificationProfile {
@@ -19,13 +20,17 @@ export interface VerificationProfile {
 
 export interface Mission {
   id: string
+  code: string | null
   title: string
   description: string
   type: MissionTypeEnum
+  cadence: MissionCadenceEnum
   pointsReward: number
   autoVerify: boolean
   verificationKey: string | null
   verificationValue: string | null
+  actionUrl: string | null
+  actionLabel: string | null
   requiredLevel: number | null
   isActive: boolean
   startDate: Date | null
@@ -38,6 +43,7 @@ export interface StudentMission {
   id: string
   studentId: string
   missionId: string
+  weekKey: string
   status: StudentMissionStatusEnum
   progress: number
   evidence: string | null
@@ -76,13 +82,17 @@ export interface MissionsStats {
 export function toMissionDomain(prismaMission: PrismaMission & { course: { id: string; name: string; code: string } | null }): Mission {
   return {
     id: prismaMission.id,
+    code: prismaMission.code,
     title: prismaMission.title,
     description: prismaMission.description,
     type: prismaMission.type,
+    cadence: prismaMission.cadence,
     pointsReward: prismaMission.pointsReward,
     autoVerify: prismaMission.autoVerify,
     verificationKey: prismaMission.verificationKey,
     verificationValue: prismaMission.verificationValue,
+    actionUrl: prismaMission.actionUrl,
+    actionLabel: prismaMission.actionLabel,
     requiredLevel: prismaMission.requiredLevel,
     isActive: prismaMission.isActive,
     startDate: prismaMission.startDate,
@@ -99,6 +109,7 @@ export function toStudentMissionDomain(
     id: prismaStudentMission.id,
     studentId: prismaStudentMission.studentId,
     missionId: prismaStudentMission.missionId,
+    weekKey: prismaStudentMission.weekKey,
     status: prismaStudentMission.status,
     progress: prismaStudentMission.progress,
     evidence: prismaStudentMission.evidence,

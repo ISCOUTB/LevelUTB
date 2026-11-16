@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useEffectEvent } from "react"
+import { useRouter } from "next/navigation"
 import {
   Target,
   Trophy,
@@ -13,18 +14,28 @@ import {
   Check,
   Info,
   TriangleAlert,
-  X
+  X,
+  ExternalLink,
+  BookOpen,
+  ClipboardList,
+  TrendingUp,
+  CalendarDays,
+  Users
 } from "lucide-react"
 import { toMissionNotice, type MissionNotice } from "@/lib/missionUi"
+import { isExternalMissionUrl } from "@/lib/missionLinks"
 
 interface Mission {
   id: string
   title: string
   description: string
   type: string
+  cadence: "ONCE" | "WEEKLY"
   points: number
   autoVerify: boolean
   requiredLevel: number | null
+  actionUrl: string | null
+  actionLabel: string | null
   startDate: string | null
   endDate: string | null
   course: {
@@ -48,9 +59,14 @@ interface MissionStats {
   totalPointsEarned: number
 }
 
-type MissionAction = "accept" | "start" | "complete"
+type MissionAction = "accept" | "start" | "complete" | "visit"
 
-type TypeConfig = { label: string; color: string; bg: string; icon: string }
+type TypeConfig = {
+  label: string
+  color: string
+  bg: string
+  icon: React.ComponentType<{ className?: string }>
+}
 type StatusConfig = {
   label: string
   color: string
@@ -58,11 +74,11 @@ type StatusConfig = {
 }
 
 const typeConfig: Record<string, TypeConfig> = {
-  ACADEMICO: { label: "Académico", color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-100 dark:bg-blue-900/30", icon: "📚" },
-  PLANIFICACION: { label: "Planificación", color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-100 dark:bg-purple-900/30", icon: "📋" },
-  MEJORA_CONTINUA: { label: "Mejora", color: "text-green-600 dark:text-green-400", bg: "bg-green-100 dark:bg-green-900/30", icon: "📈" },
-  HABITO_ESTUDIO: { label: "Hábito", color: "text-orange-600 dark:text-orange-400", bg: "bg-orange-100 dark:bg-orange-900/30", icon: "📅" },
-  IMPACTO_SOCIAL: { label: "Social", color: "text-pink-600 dark:text-pink-400", bg: "bg-pink-100 dark:bg-pink-900/30", icon: "👥" }
+  ACADEMICO: { label: "Académico", color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-100 dark:bg-blue-900/30", icon: BookOpen },
+  PLANIFICACION: { label: "Planificación", color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-100 dark:bg-purple-900/30", icon: ClipboardList },
+  MEJORA_CONTINUA: { label: "Mejora", color: "text-green-600 dark:text-green-400", bg: "bg-green-100 dark:bg-green-900/30", icon: TrendingUp },
+  HABITO_ESTUDIO: { label: "Hábito", color: "text-orange-600 dark:text-orange-400", bg: "bg-orange-100 dark:bg-orange-900/30", icon: CalendarDays },
+  IMPACTO_SOCIAL: { label: "Social", color: "text-pink-600 dark:text-pink-400", bg: "bg-pink-100 dark:bg-pink-900/30", icon: Users }
 }
 
 const statusConfig: Record<string, StatusConfig> = {
@@ -77,6 +93,8 @@ const statusConfig: Record<string, StatusConfig> = {
 
 const filterOptions = [
   { key: "all", label: "Todas" },
+  { key: "weekly", label: "Semanales" },
+  { key: "resources", label: "Recursos UTB" },
   { key: "available", label: "Disponibles" },
   { key: "active", label: "Activas" },
   { key: "completed", label: "Completadas" },
@@ -202,6 +220,29 @@ interface MissionActionsProps {
 function MissionActions({ mission, isActionLoading, evidenceValue, onAction, onEvidenceChange }: Readonly<MissionActionsProps>) {
   const busy = isActionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null
 
+  if (mission.actionUrl) {
+    const completed = isCompleted(mission)
+    return (
+      <div className="flex w-full flex-col items-end gap-1">
+        <button
+          onClick={() => onAction("visit")}
+          disabled={isActionLoading}
+          className="flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {busy ?? (
+            <>
+              {mission.actionLabel ?? "Abrir recurso"}
+              <ExternalLink className="h-3.5 w-3.5" />
+            </>
+          )}
+        </button>
+        <span className="text-xs text-gray-500 dark:text-gray-400">
+          {completed ? "Puntos ya acreditados" : "Gana los puntos al abrir el recurso"}
+        </span>
+      </div>
+    )
+  }
+
   return (
     <>
       {mission.status === "NO_ASIGNADA" && (
@@ -283,10 +324,10 @@ function MissionCard({
   const status = statusConfig[mission.status] || statusConfig.NO_ASIGNADA
   const type = typeConfig[mission.type] || typeConfig.ACADEMICO
   const StatusIcon = status.icon
-  // El fallback del icono es "👥", no el de typeConfig.ACADEMICO: así se
+  // El fallback del icono es Users, no el de typeConfig.ACADEMICO: así se
   // comportaba el ternario original y el badge y el icono pueden discrepar
   // cuando el tipo no está en el catálogo.
-  const typeIcon = typeConfig[mission.type]?.icon ?? "👥"
+  const TypeIcon = typeConfig[mission.type]?.icon ?? Users
 
   return (
     <div
@@ -298,7 +339,7 @@ function MissionCard({
     >
       {/* Header */}
       <div className="flex items-start justify-between mb-3">
-        <span className="text-3xl">{typeIcon}</span>
+        <TypeIcon className={`h-7 w-7 ${type.color}`} aria-hidden="true" />
         <div className="flex items-center gap-1">
           <span className="text-sm text-yellow-600 dark:text-yellow-400 font-medium">
             +{mission.points}
@@ -315,14 +356,28 @@ function MissionCard({
       </p>
 
       {/* Type Badge */}
-      <div className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${type.bg} ${type.color} mb-3`}>
-        {type.label}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${type.bg} ${type.color}`}>
+          {type.label}
+        </div>
+        {mission.cadence === "WEEKLY" && (
+          <div className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+            <Clock className="h-3 w-3" />
+            Semanal
+          </div>
+        )}
+        {mission.actionUrl && (
+          <div className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+            <ExternalLink className="h-3 w-3" />
+            Recurso UTB
+          </div>
+        )}
       </div>
 
       {/* Course if any */}
       {mission.course && (
         <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-          📖 {mission.course.code} - {mission.course.name}
+          {mission.course.code} - {mission.course.name}
         </p>
       )}
 
@@ -343,7 +398,7 @@ function MissionCard({
         </div>
       )}
 
-      {mission.autoVerify && isActive(mission) && !pendingDetail && (
+      {mission.autoVerify && isActive(mission) && !pendingDetail && !mission.actionUrl && (
         <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
           Esta misión se verifica automáticamente al completarla.
         </p>
@@ -375,6 +430,7 @@ function MissionCard({
 }
 
 export default function Misiones() {
+  const router = useRouter()
   const [missions, setMissions] = useState<Mission[]>([])
   const [stats, setStats] = useState<MissionStats | null>(null)
   const [filter, setFilter] = useState<string>("all")
@@ -405,7 +461,25 @@ export default function Misiones() {
     void loadMissions()
   }, [])
 
+  useEffect(() => {
+    // Al volver con el botón "atrás" desde un recurso (bfcache), refresca las
+    // misiones para mostrar los puntos acreditados por la visita.
+    const onPageShow = () => {
+      void loadMissions()
+    }
+    window.addEventListener("pageshow", onPageShow)
+    return () => window.removeEventListener("pageshow", onPageShow)
+  }, [])
+
   const handleMissionAction = async (missionId: string, action: MissionAction) => {
+    const mission = missions.find((item) => item.id === missionId)
+    const opensExternalTab =
+      action === "visit" && mission?.actionUrl ? isExternalMissionUrl(mission.actionUrl) : false
+    // Abrir la pestaña en el mismo tick del clic evita que el navegador la
+    // bloquee como popup; la URL real se asigna cuando responde la API.
+    const externalTab = opensExternalTab ? window.open("about:blank", "_blank") : null
+    if (externalTab) externalTab.opener = null
+
     setActionLoading(missionId)
     try {
       const response = await fetch("/api/missions", {
@@ -424,15 +498,38 @@ export default function Misiones() {
         } catch {
           payload = { error: "No se pudo procesar la misión" }
         }
+        externalTab?.close()
         setNotice(toMissionNotice(payload, missionId))
         return
       }
 
+      const payload = (await response.json()) as {
+        redirectUrl?: string
+        awardedPoints?: number
+        alreadyCompleted?: boolean
+      }
+
       if (notice?.missionId === missionId) setNotice(null)
-      // Recargar misiones
       await fetchMissions()
+
+      if (action === "visit") {
+        const destination = payload.redirectUrl ?? mission?.actionUrl
+        if (!destination) {
+          externalTab?.close()
+          setNotice(toMissionNotice({ error: "La misión no tiene un recurso configurado" }, missionId))
+          return
+        }
+
+        if (opensExternalTab) {
+          if (externalTab) externalTab.location.href = destination
+          else window.open(destination, "_blank", "noopener,noreferrer")
+        } else {
+          router.push(destination)
+        }
+      }
     } catch (error) {
       console.error("Error:", error)
+      externalTab?.close()
       setNotice(toMissionNotice({ error: "Error de conexión. Revisa tu internet e inténtalo de nuevo." }, missionId))
     } finally {
       setActionLoading(null)
@@ -443,6 +540,8 @@ export default function Misiones() {
 
   const filteredMissions = missions.filter((mission) => {
     if (filter === "all") return true
+    if (filter === "weekly") return mission.cadence === "WEEKLY"
+    if (filter === "resources") return mission.actionUrl !== null
     if (filter === "available") return mission.status === "NO_ASIGNADA"
     if (filter === "active") return isActive(mission)
     if (filter === "completed") return isCompleted(mission)

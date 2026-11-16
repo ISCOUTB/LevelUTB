@@ -139,7 +139,7 @@ flowchart TB
 | `/login` | NextAuth credentials | `signIn` con correo y contraseña; muestra las credenciales de demostración |
 | `/dashboard` | `/api/student`, `/stats`, `/missions`, `/notifications` | Resumen agregado |
 | `/malla` | `GET /api/curriculum` | Estados `APROBADO/EN_CURSO/BLOQUEADO/DISPONIBLE` y prerrequisitos faltantes. Solo lectura |
-| `/misiones` | `GET/POST /api/missions` | Evidencia, estados `PENDIENTE→…→VERIFICADA/RECHAZADA` |
+| `/misiones` | `GET/POST /api/missions` | Plan semanal generado al abrir + misiones de recurso (`action: "visit"` redirige a Savio, Banner, Ruta, semilleros, postgrados, etc.) y flujo manual con evidencia |
 | `/logros` | `GET /api/badges` | Tarjetas de cuatro categorías base y sus variantes Plus + chip del origen del catálogo |
 | `/recompensas` | `GET/POST /api/rewards` | Filtros de catálogo, selección de curso oficial del periodo, evidencia opcional y canje atado a `courseId`; estados `SOLICITADO→APROBADO/RECHAZADO→USADO/EXPIRADO` |
 | `/estadisticas` | `GET /api/stats` | Tendencia y distribución por semestre |
@@ -171,7 +171,49 @@ sequenceDiagram
     MW-->>P: next() o redirect /login?callbackUrl
 ```
 
-### R1 — Avance de misión con evidencia
+### R1 — Visita a un recurso UTB
+
+```mermaid
+sequenceDiagram
+    actor E as Estudiante
+    participant M as /misiones
+    participant A as POST /api/missions
+    participant DB as Prisma
+    E->>M: clic en "Ir a Savio"
+    M->>A: {missionId, action:"visit"}
+    A->>A: valida actionUrl (ruta interna o https://*.utb.edu.co)
+    A->>DB: StudentMission → COMPLETADA + Point (idempotente)
+    A-->>M: {redirectUrl, awardedPoints, alreadyCompleted}
+    alt recurso externo
+        M->>M: abre pestaña nueva en redirectUrl
+    else página interna
+        M->>M: router.push(redirectUrl)
+    end
+```
+
+La visita queda registrada en `StudentMission.metadata` (`visitedUrl`, `visitedAt`) y la llave idempotente `MISSION:{userId}:{missionId}:{periodo}` (con `:{semana}` añadida para misiones `WEEKLY`) impide duplicar puntos. Reabrir un recurso ya completado en la misma semana sigue redirigiendo, pero responde `awardedPoints: 0`.
+
+### R2 — Generación del plan semanal
+
+```mermaid
+sequenceDiagram
+    actor E as Estudiante
+    participant M as /misiones
+    participant A as GET /api/missions
+    participant R as weeklyMissionPlan
+    participant DB as Prisma
+    E->>M: abre /misiones
+    M->>A: GET
+    A->>DB: perfil, actividad, recomendaciones, inscripciones
+    A->>R: buildWeeklyMissionPlan(snapshot)
+    R-->>A: hábitos + recurso rotativo + adaptativa
+    A->>DB: createMany StudentMission (weekKey, skipDuplicates)
+    A-->>M: misiones permanentes + plan de la semana
+```
+
+La generación es perezosa e idempotente: `weekKey` (semana ISO) forma parte de la llave única `(studentId, missionId, weekKey)`. Los hábitos se asignan en `EN_PROGRESO` para que la auto-verificación pueda ejecutarse; las misiones de recurso quedan `PENDIENTE` y se completan con `visit`. Los puntos de una misión `WEEKLY` usan `MISSION:{userId}:{missionId}:{periodo}:{semana}`, así que se pueden volver a ganar cada semana sin duplicarse.
+
+### R3 — Avance manual de misión con evidencia
 
 ```mermaid
 sequenceDiagram
@@ -194,7 +236,7 @@ sequenceDiagram
 
 Nota: `APROBAR_CREDITOS_SEMESTRE` cuenta solo inscripciones del periodo con `source !== "MANUAL"` (`src/domain/missions/missionVerificationService.ts:174`). `getAverageGrade` aplica el mismo criterio en `src/lib/academic.ts:88-92`, con la excepción de `MANUAL` en estado `APROBADO`, que sí cuenta (deuda pendiente, ver la sección 11).
 
-### R2 — Canje de recompensa
+### R4 — Canje de recompensa
 
 ```mermaid
 sequenceDiagram
@@ -254,9 +296,10 @@ flowchart LR
 - **Política de contraseña**: `validatePassword` (8+, mayúscula, número) se aplica en el alta docente. Sin flujo de recuperación/reset (ver la sección 11).
 - **Auditoría y racha**: `Activity {action, details}` con `ACTIVITY_ACTIONS` (`LOGIN`, `PAGE_VIEW`, `ACADEMIC_DAILY_ACTIVITY`, `RUTA_RECOMENDADA_DOCENTE`); `calculateStreak` → `{current, best, activeToday}`.
 - **Integridad académica**: `source UNIVERSITY/MANUAL`; promedio y `APROBAR_CREDITOS_SEMESTRE` filtran `MANUAL` sin aval.
-- **Misiones automáticas**: `verificationKey/Value` interpretados por `src/domain/missions/missionVerificationService.ts` (créditos, promedio, racha, curso). Las misiones del catálogo actual son todas `autoVerify`.
+- **Misiones automáticas**: `verificationKey/Value` interpretados por `src/domain/missions/missionVerificationService.ts` (créditos, promedio, racha, curso). El catálogo mezcla misiones permanentes (`cadence: ONCE`, `actionUrl`/`actionLabel`) y plantillas semanales (`cadence: WEEKLY`). El plan semanal se calcula en `src/domain/missions/weeklyMissionPlan.ts` y se persiste por estudiante/semana ISO en `StudentMission.weekKey`; los hábitos usan `autoVerify` y las de recurso se completan con `action: "visit"`.
+- **Destinos de misión**: `src/lib/missionLinks.ts` solo autoriza rutas internas (`/malla`) y URLs HTTPS de `utb.edu.co` o subdominios. El cliente abre externos en pestaña nueva y usa `router.push` para rutas internas, refrescando el estado al volver (`pageshow`).
 - **UX**: tarjetas `rounded-xl border bg-white dark:bg-gray-800`, acento azul/cian, `next-themes` (default light), responsive móvil/escritorio. `/login` sin `Sidebar/Header` (`AppShell`).
-- **Calidad de código**: `npm run lint` (ESLint next+TS; 0 errores, 0 advertencias), `npm run test:unit` (66 pruebas unitarias sobre `src/domain`, `src/lib` y `src/application`), `npx tsc --noEmit` y `npm run build`.
+- **Calidad de código**: `npm run lint` (ESLint next+TS; 0 errores, 0 advertencias), `npm run test:unit` (76 pruebas unitarias sobre `src/domain`, `src/lib` y `src/application`), `npx tsc --noEmit` y `npm run build`.
 - **Fuente académica**: `getAcademicSource()` se resuelve en cada request. Con la API externa caída, `HttpAcademicSource` lanza `EXTERNAL_API_UNAVAILABLE` y `curriculum`/`student` responden `503`, para que el fallo sea distinguible de un error de la app.
 - **Fuente de insignias**: `HttpBadgeSource` consume exclusivamente `utb-external-api`. Si la fuente no responde, `/api/badges` informa indisponibilidad; un 404 externo devuelve catálogo vacío porque el estudiante no está registrado.
 
@@ -347,7 +390,7 @@ flowchart LR
 | `AllowedStudent` | Allowlist PROA/Banner (`email → studentCode, programId, admissionYear`); poblada por `scripts/import-proa.ts` |
 | `code` vs `named` | `parseInstitutionalEmail()`: `code` = local-part numérico de 8 a 10 dígitos (da `studentCode` directo); `named` = nombre (requiere allowlist o código manual) |
 | `MANUAL` / `UNIVERSITY` | `Enrollment.source`: inscripción cargada por el estudiante vs registro oficial de la institución; solo `UNIVERSITY` cuenta para métricas verificables |
-| Misión | Reto (`ACADEMICO, PLANIFICACION, MEJORA_CONTINUA, HABITO_ESTUDIO, IMPACTO_SOCIAL`); `StudentMission.status`: `PENDIENTE→EN_PROGRESO→EN_REVISION→COMPLETADA/VERIFICADA/RECHAZADA` |
+| Misión | Reto (`ACADEMICO, PLANIFICACION, MEJORA_CONTINUA, HABITO_ESTUDIO, IMPACTO_SOCIAL`) con `actionUrl`/`actionLabel` y `cadence` (`ONCE`/`WEEKLY`); `StudentMission.weekKey` identifica la semana ISO del plan semanal; `StudentMission.status`: `PENDIENTE→EN_PROGRESO→EN_REVISION→COMPLETADA/VERIFICADA/RECHAZADA` |
 | Insignia | Panel base/Plus con `Badge.category`: `PROGRESO, HABITO, COMPETENCIA, IMPACTO_SOCIAL`. El catálogo externo contiene ocho insignias: cuatro categorías base y cuatro variantes Plus |
 | Recompensa / canje | `Reward.category`: `EXAMEN, ASISTENCIA, ENTREGA, OTRO`; recompensa global o docente (`teacherId?`, `courseId?`); débito `PointSource.CANJE_RECOMPENSA`; `StudentReward.status`: `SOLICITADO→APROBADO/RECHAZADO→USADO/EXPIRADO`; unicidad por `(studentId, rewardId, courseId)` |
 | Racha | Días consecutivos con `Activity`; `{current, best, activeToday}` |

@@ -8,9 +8,12 @@ import {
   getVerifyMissionUseCase,
   getAwardPointsUseCase,
   getCreateNotificationUseCase,
+  getVisitMissionUseCase,
   buildStartMetadata,
 } from "@/application/missions/missionFactory"
 import { getCurrentPeriod } from "@/lib/period"
+import { getIsoWeekKey } from "@/lib/week"
+import { isAllowedMissionUrl } from "@/lib/missionLinks"
 
 type StudentSession = { userId: string } | { error: NextResponse }
 
@@ -85,7 +88,7 @@ export async function GET() {
 async function loadMissionContext(
   userId: string,
   missionId: unknown
-): Promise<{ value: { mission: { id: string; isActive: boolean; requiredLevel: number | null; autoVerify: boolean; verificationKey: string | null; verificationValue: string | null; title: string; pointsReward: number } } & { existingMission: { id: string; status: string; metadata: string | null; evidence: string | null } | null } } | { error: NextResponse }> {
+): Promise<{ value: { mission: { id: string; isActive: boolean; requiredLevel: number | null; autoVerify: boolean; verificationKey: string | null; verificationValue: string | null; actionUrl: string | null; actionLabel: string | null; cadence: "ONCE" | "WEEKLY"; title: string; pointsReward: number }; weekKey: string } & { existingMission: { id: string; status: string; metadata: string | null; evidence: string | null } | null } } | { error: NextResponse }> {
   if (!missionId) {
     return {
       error: NextResponse.json({ error: "ID de misión requerido" }, { status: 400 })
@@ -120,15 +123,17 @@ async function loadMissionContext(
 
   const existingMission = await prisma.studentMission.findUnique({
     where: {
-      studentId_missionId: {
+      studentId_missionId_weekKey: {
         studentId: userId,
-        missionId: mission.id
+        missionId: mission.id,
+        weekKey: mission.cadence === "WEEKLY" ? getIsoWeekKey() : "",
       }
     }
   })
 
   return {
     value: {
+      weekKey: mission.cadence === "WEEKLY" ? getIsoWeekKey() : "",
       mission: {
         id: mission.id,
         isActive: mission.isActive,
@@ -136,6 +141,9 @@ async function loadMissionContext(
         autoVerify: mission.autoVerify,
         verificationKey: mission.verificationKey,
         verificationValue: mission.verificationValue,
+        actionUrl: mission.actionUrl,
+        actionLabel: mission.actionLabel,
+        cadence: mission.cadence,
         title: mission.title,
         pointsReward: mission.pointsReward,
       },
@@ -149,11 +157,11 @@ async function loadMissionContext(
   }
 }
 
-async function acceptMission(userId: string, mission: { id: string; title: string }): Promise<NextResponse> {
+async function acceptMission(userId: string, mission: { id: string; title: string }, weekKey: string): Promise<NextResponse> {
   const acceptMissionUseCase = getAcceptMissionUseCase()
   const createNotificationUseCase = getCreateNotificationUseCase()
 
-  const result = await acceptMissionUseCase.execute(userId, mission.id)
+  const result = await acceptMissionUseCase.execute(userId, mission.id, weekKey)
 
   await createNotificationUseCase.execute(
     userId,
@@ -169,7 +177,8 @@ async function acceptMission(userId: string, mission: { id: string; title: strin
 async function startMission(
   userId: string,
   mission: { id: string; verificationKey: string | null },
-  existingMission: { id: string; status: string } | null
+  existingMission: { id: string; status: string } | null,
+  weekKey: string
 ): Promise<NextResponse> {
   if (!existingMission || !["PENDIENTE", "RECHAZADA"].includes(existingMission.status)) {
     return NextResponse.json(
@@ -182,7 +191,7 @@ async function startMission(
   if ("error" in metadata) return metadata.error
 
   const startMissionUseCase = getStartMissionUseCase()
-  const result = await startMissionUseCase.execute(userId, mission.id, metadata.value)
+  const result = await startMissionUseCase.execute(userId, mission.id, metadata.value, weekKey)
 
   return NextResponse.json({ studentMission: result.studentMission })
 }
@@ -236,11 +245,26 @@ function buildCompletionEvidence(
     : "Cumplimiento registrado automáticamente"
 }
 
+/**
+ * Llave idempotente de puntos. Las misiones semanales añaden la semana ISO para
+ * que la recompensa se pueda ganar de nuevo cada semana sin duplicarse dentro
+ * de la misma semana.
+ */
+function missionReferenceKey(
+  userId: string,
+  mission: { id: string; cadence: "ONCE" | "WEEKLY" },
+  weekKey: string
+): string {
+  const base = `MISSION:${userId}:${mission.id}:${getCurrentPeriod()}`
+  return mission.cadence === "WEEKLY" ? `${base}:${weekKey}` : base
+}
+
 async function completeMission(
   userId: string,
-  mission: { id: string; autoVerify: boolean; verificationKey: string | null; verificationValue: string | null; title: string; pointsReward: number },
+  mission: { id: string; cadence: "ONCE" | "WEEKLY"; autoVerify: boolean; verificationKey: string | null; verificationValue: string | null; title: string; pointsReward: number },
   existingMission: { id: string; status: string; metadata: string | null; evidence: string | null },
-  evidence: unknown
+  evidence: unknown,
+  weekKey: string
 ): Promise<NextResponse> {
   if (existingMission.status !== "EN_PROGRESO") {
     return NextResponse.json(
@@ -266,7 +290,8 @@ async function completeMission(
     userId,
     mission.id,
     buildCompletionEvidence(mission, submittedEvidence, verification.value),
-    verification.value ? { passed: true, progress: 100, message: verification.value } : null
+    verification.value ? { passed: true, progress: 100, message: verification.value } : null,
+    weekKey
   )
 
   let awardedPoints = 0
@@ -277,7 +302,7 @@ async function completeMission(
       mission.pointsReward,
       "MISION_COMPLETADA",
       `Misión completada: ${mission.title}`,
-      `MISSION:${userId}:${mission.id}:${getCurrentPeriod()}`
+      missionReferenceKey(userId, mission, weekKey)
     )
   }
 
@@ -295,6 +320,74 @@ async function completeMission(
   )
 
   return NextResponse.json({ studentMission: result.studentMission })
+}
+
+async function visitMission(
+  userId: string,
+  mission: { id: string; cadence: "ONCE" | "WEEKLY"; actionUrl: string | null; title: string; pointsReward: number },
+  existingMission: { id: string; status: string } | null,
+  weekKey: string
+): Promise<NextResponse> {
+  const redirectUrl = mission.actionUrl?.trim()
+  if (!redirectUrl || !isAllowedMissionUrl(redirectUrl)) {
+    return NextResponse.json(
+      { error: "Esta misión no tiene un recurso válido para abrir" },
+      { status: 400 }
+    )
+  }
+
+  const alreadyCompleted =
+    existingMission !== null &&
+    (existingMission.status === "COMPLETADA" || existingMission.status === "VERIFICADA")
+
+  // Las plantillas semanales solo se pueden completar si el plan de la semana
+  // ya las asignó; así no se pueden farmear plantillas no asignadas.
+  if (!alreadyCompleted && mission.cadence === "WEEKLY" && !existingMission) {
+    return NextResponse.json(
+      { error: "Esta misión no está asignada en tu plan de la semana" },
+      { status: 400 }
+    )
+  }
+
+  // Se redirige incluso si ya estaba completada: abrir el recurso siempre lleva
+  // al estudiante al apartado, pero los puntos solo se acreditan una vez.
+  if (alreadyCompleted) {
+    return NextResponse.json({
+      redirectUrl,
+      awardedPoints: 0,
+      alreadyCompleted: true,
+    })
+  }
+
+  const visitMissionUseCase = getVisitMissionUseCase()
+  const result = await visitMissionUseCase.execute(userId, mission.id, redirectUrl, weekKey)
+
+  const awardPointsUseCase = getAwardPointsUseCase()
+  const awardedPoints = await awardPointsUseCase.execute(
+    userId,
+    mission.pointsReward,
+    "MISION_COMPLETADA",
+    `Misión completada: ${mission.title}`,
+    missionReferenceKey(userId, mission, weekKey)
+  )
+
+  const createNotificationUseCase = getCreateNotificationUseCase()
+  await createNotificationUseCase.execute(
+    userId,
+    "Misión completada",
+    awardedPoints > 0
+      ? `Abriste «${mission.title}» y ganaste ${awardedPoints} puntos.`
+      : `Abriste «${mission.title}», pero alcanzaste el límite de puntos de misiones del periodo.`,
+    "LOGRO_OBTENIDO",
+    "/misiones"
+  )
+
+  return NextResponse.json({
+    redirectUrl,
+    awardedPoints,
+    alreadyCompleted: false,
+    studentMission: result.studentMission,
+  })
 }
 
 // POST: Aceptar/ejecutar una misión
@@ -328,20 +421,26 @@ export async function POST(request: Request) {
     const context = await loadMissionContext(userId, missionId)
     if ("error" in context) return context.error
 
-    const { mission, existingMission } = context.value
+    const { mission, existingMission, weekKey } = context.value
 
     if (action === "accept") {
+      if (mission.cadence === "WEEKLY") {
+        return NextResponse.json(
+          { error: "Las misiones semanales se asignan automáticamente" },
+          { status: 400 }
+        )
+      }
       if (existingMission) {
         return NextResponse.json(
           { error: "Ya tienes esta misión asignada" },
           { status: 400 }
         )
       }
-      return acceptMission(userId, mission)
+      return acceptMission(userId, mission, weekKey)
     }
 
     if (action === "start") {
-      return startMission(userId, mission, existingMission)
+      return startMission(userId, mission, existingMission, weekKey)
     }
 
     if (action === "complete") {
@@ -351,7 +450,11 @@ export async function POST(request: Request) {
           { status: 400 }
         )
       }
-      return completeMission(userId, mission, existingMission, evidence)
+      return completeMission(userId, mission, existingMission, evidence, weekKey)
+    }
+
+    if (action === "visit") {
+      return visitMission(userId, mission, existingMission, weekKey)
     }
 
     return NextResponse.json(

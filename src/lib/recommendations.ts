@@ -122,7 +122,7 @@ function addBottleneckRecommendations(bottleneckCourses: UnlockedCourse[], recom
       const pluralSuffix = item.unlocksCount > 1 ? "s" : ""
       recommendations.push({
         type: "CURSO_SUGERIDO",
-        title: `📚 Prioriza: ${item.course.name}`,
+        title: `Prioriza: ${item.course.name}`,
         description: `Esta materia desbloquea ${item.unlocksCount} curso${pluralSuffix} más. Tomarla el próximo semestre acelera tu avance en la carrera.`,
         priority: 1,
       })
@@ -145,7 +145,7 @@ function addFailedCourseRecommendations(failedCourseIds: Set<string>, allCourses
 
     recommendations.push({
       type: "ALERTA_ATRASO",
-      title: `⚠️ Repetir: ${course.name}`,
+      title: `Repetir: ${course.name}`,
       description: `Reprobaste esta materia anteriormente. Te recomendamos inscribirla de nuevo lo antes posible${prereqText}.`,
       priority: 1,
     })
@@ -160,7 +160,7 @@ function addElectiveRecommendations(unlockedCourses: ReturnType<typeof findUnloc
     const names = electivas.slice(0, 3).map((c) => c.name).join(", ")
     recommendations.push({
       type: "ELECTIVA_RECOMENDADA",
-      title: "💡 Electivas disponibles",
+      title: "Electivas disponibles",
       description: `Puedes inscribir las siguientes electivas: ${names}. Estas suman créditos valiosos para tu avance.`,
       priority: 3,
     })
@@ -179,7 +179,7 @@ function addNextSemesterRecommendations(unlockedCourses: ReturnType<typeof findU
     const names = nextSemesterCourses.slice(0, 4).map((c) => c.name).join(", ")
     recommendations.push({
       type: "RUTA_ACADEMICA",
-      title: "🗺️ Materias sugeridas para el próximo semestre",
+      title: "Materias sugeridas para el próximo semestre",
       description: `Basado en tu progreso, puedes inscribir: ${names}.`,
       priority: 2,
     })
@@ -190,7 +190,7 @@ function addLowGpaRecommendation(profile: Awaited<ReturnType<typeof fetchStudent
   if (profile.averageGrade > 0 && profile.averageGrade < 3.5) {
     recommendations.push({
       type: "MEJORA_PROMEDIO",
-      title: "📉 Tu promedio necesita atención",
+      title: "Tu promedio necesita atención",
       description: `Tu promedio actual es ${profile.averageGrade.toFixed(1)}. Considera reducir la carga académica el próximo semestre y enfocarte en mejorar tus calificaciones.`,
       priority: 1,
     })
@@ -226,7 +226,7 @@ function addCreditFillRecommendation(
       const creditBonusText = profile.averageGrade >= 4.0 ? " Tu promedio ≥ 4.0 te da derecho a 20 créditos." : ""
       recommendations.push({
         type: "RELLENAR_CREDITOS",
-        title: `💰 Rellena tu semestre con ${remainingCredits} créditos disponibles`,
+        title: `Rellena tu semestre con ${remainingCredits} créditos disponibles`,
         description: `Te quedan ${remainingCredits} créditos disponibles este semestre. Puedes reemplazar una materia por "${bestFitCourse.name}" (${bestFitCourse.credits} créditos) para aprovechar tu cupo y terminar la carrera más rápido.${creditBonusText}`,
         priority: 2,
       })
@@ -239,7 +239,7 @@ function addFallbackRecommendation(unlockedCourses: ReturnType<typeof findUnlock
     const names = unlockedCourses.slice(0, 4).map((c) => c.name).join(", ")
     recommendations.push({
       type: "CURSO_SUGERIDO",
-      title: "📚 Materias disponibles",
+      title: "Materias disponibles",
       description: `Tienes ${unlockedCourses.length} materias desbloqueadas. Algunas opciones: ${names}.`,
       priority: 2,
     })
