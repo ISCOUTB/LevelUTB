@@ -1,27 +1,18 @@
 "use client"
 
-import { useState, useSyncExternalStore } from "react"
+import { useState } from "react"
+import Image from "next/image"
 import { signIn } from "next-auth/react"
 import { useRouter } from "next/navigation"
-import { Mail, Lock, Eye, EyeOff, Moon, Sun } from "lucide-react"
-import { useTheme } from "next-themes"
+import { Mail, Lock, Eye, EyeOff, TrendingUp, Trophy, Gift } from "lucide-react"
 
 export default function LoginPage() {
   const router = useRouter()
-  const { theme, setTheme } = useTheme()
-  const mounted = useSyncExternalStore(
-    () => () => {},
-    () => true,
-    () => false
-  )
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
-
-  const toggleThemeLabel = theme === "dark" ? "Activar modo claro" : "Activar modo oscuro"
-  const themeLabel = mounted ? toggleThemeLabel : "Cambiar tema"
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -51,134 +42,166 @@ export default function LoginPage() {
     }
   }
 
+  // Login fixed to dark mode: no theme toggle, dark classes are unconditional
+  // so they render dark regardless of the global (light/dark) theme.
   return (
-    <div className="min-h-screen bg-white dark:bg-gray-900 flex items-center justify-center px-4 py-12">
-      {/* Theme toggle */}
-      <button
-        type="button"
-        onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-        aria-label={themeLabel}
-        title={themeLabel}
-        className="absolute right-4 top-4 z-10 rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800/70 dark:hover:text-white"
-      >
-        {mounted && theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-      </button>
-
-      {/* Login Card */}
-      <div className="w-full max-w-md">
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-600">
-            <svg className="h-6 w-6 text-white" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 3L1 9l11 6 9-4.91V17h2V9L12 3z" />
-              <path d="M5 13.18v4L12 21l7-3.82v-4" />
-              <path d="M9 9h6v6H9z" />
-            </svg>
+    <div className="min-h-screen bg-gray-900 lg:grid lg:min-h-screen lg:grid-cols-2">
+      {/* Left: Credentials */}
+      <section aria-label="Iniciar sesión" className="relative flex items-center justify-center px-4 py-12 sm:px-8">
+        <div className="w-full max-w-md">
+          <div className="mb-8 text-center">
+            <h1 className="text-2xl font-bold text-white">Iniciar Sesión</h1>
+            <p className="mt-1 text-gray-400">Accede con tu correo institucional para continuar</p>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">LevelUTB</h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-1">Experiencia de avance académico</p>
-        </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-8 border border-gray-200 dark:border-gray-700">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6 text-center">
-            Iniciar Sesión
-          </h2>
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Email */}
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Correo Institucional
-              </label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="usuario@utb.edu.co"
-                  className="w-full pl-10 pr-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                  required
-                />
+          <div className="rounded-2xl border border-gray-700 bg-gray-800 p-8 shadow-lg">
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Email */}
+              <div>
+                <label htmlFor="email" className="mb-2 block text-sm font-medium text-gray-300">
+                  Correo Institucional
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 w-5 h-5 -translate-y-1/2 text-gray-400" />
+                  <input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="usuario@utb.edu.co"
+                    className="w-full rounded-lg border border-gray-600 bg-gray-700 py-3 pl-10 pr-4 text-white placeholder:text-gray-400 outline-none focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
               </div>
-            </div>
 
-            {/* Password */}
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Contraseña
-              </label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full pl-10 pr-12 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                  required
-                />
+              {/* Password */}
+              <div>
+                <label htmlFor="password" className="mb-2 block text-sm font-medium text-gray-300">
+                  Contraseña
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 w-5 h-5 -translate-y-1/2 text-gray-400" />
+                  <input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full rounded-lg border border-gray-600 bg-gray-700 py-3 pl-10 pr-12 text-white placeholder:text-gray-400 outline-none focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-300"
+                  >
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Error */}
+              {error && (
+                <div className="rounded-lg border border-red-800 bg-red-900/20 p-3">
+                  <p className="text-sm text-red-400">{error}</p>
+                </div>
+              )}
+
+              {/* Submit */}
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full rounded-lg bg-blue-600 py-3 font-semibold text-white transition-colors hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {loading ? "Ingresando..." : "Ingresar"}
+              </button>
+            </form>
+
+            {/* Demo Access */}
+            <div className="mt-6 border-t border-gray-700 pt-6">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  onClick={() => {
+                    setEmail("demo@utb.edu.co")
+                    setPassword("demo123")
+                  }}
+                  className="rounded-lg border border-gray-600 py-2 text-gray-300 transition-colors hover:bg-gray-700"
                 >
-                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  Estudiante demo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail("docente@utb.edu.co")
+                    setPassword("demo123")
+                  }}
+                  className="rounded-lg border border-blue-700 py-2 text-blue-300 transition-colors hover:bg-blue-900/20"
+                >
+                  Docente demo
                 </button>
               </div>
             </div>
-
-            {/* Error */}
-            {error && (
-              <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-                <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
-              </div>
-            )}
-
-            {/* Submit */}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {loading ? "Ingresando..." : "Ingresar"}
-            </button>
-          </form>
-
-          {/* Demo Access */}
-          <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setEmail("demo@utb.edu.co")
-                  setPassword("demo123")
-                }}
-                className="py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-              >
-                Estudiante demo
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setEmail("docente@utb.edu.co")
-                  setPassword("demo123")
-                }}
-                className="py-2 border border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
-              >
-                Docente demo
-              </button>
-            </div>
           </div>
-        </div>
 
-        {/* Footer */}
-        <p className="text-center text-sm text-gray-500 dark:text-gray-400 mt-6">
-          Universidad Tecnológica de Bolívar © 2026
-        </p>
-      </div>
+          {/* Footer */}
+          <p className="mt-6 text-center text-sm text-gray-400">
+            Universidad Tecnológica de Bolívar © 2026
+          </p>
+        </div>
+      </section>
+
+      {/* Right: Project name and description */}
+      <section
+        aria-label="Acerca de LevelUTB"
+        className="relative flex items-center justify-center overflow-hidden bg-gradient-to-br from-blue-600 via-blue-700 to-blue-900 px-4 py-12 text-white sm:px-8"
+      >
+        {/* Decorative circles */}
+        <div aria-hidden="true" className="absolute -right-24 -top-24 h-64 w-64 rounded-full bg-white/10" />
+        <div aria-hidden="true" className="absolute -bottom-32 -left-16 h-80 w-80 rounded-full bg-white/5" />
+
+        {/* Soft transition between the two halves: wide feathered gradient only,
+            starting in the exact left-panel color so no line is visible */}
+        <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-0 hidden w-80 bg-gradient-to-r from-gray-900 via-gray-900/55 to-transparent lg:block" />
+        <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-gray-900 via-gray-900/55 to-transparent lg:hidden" />
+
+        <div className="relative z-10 w-full max-w-lg text-center">
+          <div className="mx-auto mb-6 flex w-fit rounded-2xl bg-white px-5 py-3 shadow-lg">
+            <Image
+              src="/utblogotipo.png"
+              alt="Universidad Tecnológica de Bolívar"
+              width={180}
+              height={94}
+              className="h-auto w-44 object-contain"
+            />
+          </div>
+
+          <h2 className="text-4xl font-bold tracking-tight sm:text-5xl">LevelUTB</h2>
+          <p className="mt-2 text-lg font-medium text-blue-100">Experiencia de avance académico</p>
+
+          <p className="mx-auto mt-5 max-w-md leading-relaxed text-blue-50">
+            Plataforma gamificada para el seguimiento del avance académico de los estudiantes de la
+            Universidad Tecnológica de Bolívar. Visualiza tu progreso en la malla curricular, gana
+            puntos e insignias, completa misiones y canjea recompensas académicas.
+          </p>
+
+          <ul className="mx-auto mt-8 max-w-md space-y-3 text-left">
+            <li className="flex items-center gap-3 rounded-xl bg-white/10 px-4 py-3">
+              <TrendingUp className="h-5 w-5 shrink-0 text-blue-100" />
+              <span>Seguimiento de tu avance en la malla curricular</span>
+            </li>
+            <li className="flex items-center gap-3 rounded-xl bg-white/10 px-4 py-3">
+              <Trophy className="h-5 w-5 shrink-0 text-blue-100" />
+              <span>Puntos, niveles e insignias por tus logros</span>
+            </li>
+            <li className="flex items-center gap-3 rounded-xl bg-white/10 px-4 py-3">
+              <Gift className="h-5 w-5 shrink-0 text-blue-100" />
+              <span>Recompensas académicas y recomendaciones personalizadas</span>
+            </li>
+          </ul>
+        </div>
+      </section>
     </div>
   )
 }
