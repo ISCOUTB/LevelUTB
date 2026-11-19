@@ -364,7 +364,7 @@ export default function MallaCurricular() {
                 className="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
               >
                   <div className="flex items-center gap-3">
-                   <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                   <div className="w-8 h-8 bg-linear-to-br from-blue-500 -lg flex items-center justify-center">
                      <span className="text-white font-bold text-sm">{semester.semester}</span>
                    </div>
                    <div className="text-left">
