@@ -28,8 +28,8 @@ Plataforma web gamificada para que el estudiante de la Universidad Tecnológica 
 
 1. **Usabilidad por rol**: navegación distinta estudiante/docente (`Sidebar.tsx`, `Header.tsx`), responsive y modo claro/oscuro. Login con correo y contraseña, con las credenciales demo visibles en la propia pantalla.
 2. **Seguridad**: dominio `@utb.edu.co` con regex exacta (`institutionalEmail.ts`), bcrypt para contraseñas, política de contraseña en el alta docente, y autorización por rol en cada endpoint.
-3. **Mantenibilidad**: dominio aislado en `src/domain/*` (reglas puras) y `src/lib/*` (24 módulos de soporte), 25 modelos Prisma como contrato de datos, 66 tests unitarios.
-4. **Resiliencia externa**: con `UNIVERSITY_API_ENABLED="true"` y la API externa caída, las rutas académicas responden `503` en vez de servir datos parciales.
+3. **Mantenibilidad**: dominio aislado en `src/domain/*` (reglas puras) y `src/lib/*` (19 módulos de soporte), 25 modelos Prisma como contrato de datos, 76 tests unitarios.
+4. **Resiliencia externa**: `getAcademicSource()` resuelve siempre la fuente HTTP; si la API externa cae, `curriculum` y `student` responden `503` y `/api/stats` degrada a Prisma en vez de fallar.
 5. **Integridad académica**: inscripciones `MANUAL` del estudiante no contaminan promedio ni misión `APROBAR_CREDITOS_SEMESTRE` (mitigación parcial, ver la sección 11).
 
 ---
@@ -47,7 +47,7 @@ Plataforma web gamificada para que el estudiante de la Universidad Tecnológica 
 | Fuente académica | `HttpAcademicSource` como única fuente; consume `utb-external-api` y sus fixtures | `src/lib/getAcademicSource.ts`, `.env.example` |
 | Despliegue | `docker compose up --build -d` (3 servicios: `app`, `db` PostgreSQL 16, `external-academic-api`). Docker Compose es el único flujo soportado | `docker-compose.yml`, `Dockerfile`, `README.md`, sección Instalación |
 | Runtime | Node.js 20 en imagen `node:20-alpine`; todos los servicios se ejecutan con Docker Compose | `Dockerfile`, `docker-compose.yml`, `README.md` |
-| Datos iniciales | Seed base único `prisma/seed.ts` (ISCO 2019: 10 semestres, 55 cursos, 162 créditos, 13 misiones, 8 insignias, 1 estudiante y 1 docente). En Docker solo se ejecuta si la tabla `users` está vacía | `prisma/seed.ts`, `prisma/seed-if-empty.ts` |
+| Datos iniciales | Seed base único `prisma/seed.ts` (ISCO 2019: 10 semestres, 55 cursos, 162 créditos, 13 misiones permanentes + 15 plantillas semanales, 8 insignias, 1 estudiante y 1 docente). En Docker solo se ejecuta si la tabla `users` está vacía | `prisma/seed.ts`, `prisma/seed-if-empty.ts` |
 | Import académico | CSV PROA/Banner → `AllowedStudent` (`email,studentCode,programCode,admissionYear,fullName?`), ejecutado a mano | `scripts/import-proa.ts` |
 
 ---
@@ -97,7 +97,7 @@ flowchart TB
         PAGES[src/app páginas\n13 rutas]
         API[src/app/api\n15 route handlers]
         DOM[src/domain + src/application\nreglas y casos de uso]
-        LIB[src/lib\n24 módulos de apoyo]
+        LIB[src/lib\n19 módulos de apoyo]
         SRC[AcademicSource\nsolo HTTP externo]
         COMP[src/components\nAppShell/Sidebar/Header/providers]
     end
@@ -138,7 +138,7 @@ flowchart TB
 |---|---|---|
 | `/login` | NextAuth credentials | `signIn` con correo y contraseña; muestra las credenciales de demostración |
 | `/dashboard` | `/api/student`, `/stats`, `/missions`, `/notifications` | Resumen agregado |
-| `/malla` | `GET /api/curriculum` | Estados `APROBADO/EN_CURSO/BLOQUEADO/DISPONIBLE` y prerrequisitos faltantes. Solo lectura |
+| `/malla` | `GET /api/curriculum` | Estados `completed/in_progress/available/blocked` (traducidos en UI) y prerrequisitos faltantes. Solo lectura. Mientras llega la respuesta pinta `mockCurriculum` (`page.tsx:43-146,216`); si la petición falla, muestra error con reintento |
 | `/misiones` | `GET/POST /api/missions` | Plan semanal generado al abrir + misiones de recurso (`action: "visit"` redirige a Savio, Banner, Ruta, semilleros, postgrados, etc.) y flujo manual con evidencia |
 | `/logros` | `GET /api/badges` | Tarjetas de cuatro categorías base y sus variantes Plus + chip del origen del catálogo |
 | `/recompensas` | `GET/POST /api/rewards` | Filtros de catálogo, selección de curso oficial del periodo, evidencia opcional y canje atado a `courseId`; estados `SOLICITADO→APROBADO/RECHAZADO→USADO/EXPIRADO` |
@@ -234,7 +234,7 @@ sequenceDiagram
     end
 ```
 
-Nota: `APROBAR_CREDITOS_SEMESTRE` cuenta solo inscripciones del periodo con `source !== "MANUAL"` (`src/domain/missions/missionVerificationService.ts:174`). `getAverageGrade` aplica el mismo criterio en `src/lib/academic.ts:88-92`, con la excepción de `MANUAL` en estado `APROBADO`, que sí cuenta (deuda pendiente, ver la sección 11).
+Nota: `APROBAR_CREDITOS_SEMESTRE` cuenta solo inscripciones del periodo con `source !== "MANUAL"` (`src/domain/missions/missionVerificationService.ts:178`). `getAverageGrade` aplica el mismo criterio en `src/lib/academic.ts:88-92`, con la excepción de `MANUAL` en estado `APROBADO`, que sí cuenta (deuda pendiente, ver la sección 11).
 
 ### R4 — Canje de recompensa
 
@@ -255,9 +255,9 @@ sequenceDiagram
 
 El docente puede crear recompensas con `POST /api/teacher/rewards` indicando nombre, descripción, icono, categoría, costo y `courseId`. El servidor exige que el curso pertenezca a una asignación del docente. Las recompensas creadas guardan `teacherId` y `courseId`; las globales mantienen ambos campos nulos.
 
-Unicidad `@@unique([studentId, rewardId, courseId])` (`schema.prisma:565`): evita solicitudes duplicadas para el mismo curso y permite reutilizar la recompensa en cursos distintos; el conteo de usos previos sigue siendo global por `rewardId` (ver la sección 11).
+Unicidad `@@unique([studentId, rewardId, courseId])` (`schema.prisma:575`): evita solicitudes duplicadas para el mismo curso y permite reutilizar la recompensa en cursos distintos; el conteo de usos previos sigue siendo global por `rewardId` (ver la sección 11).
 
-Periodo actual en todas las rutas: `YYYY-1` (ene–jun) / `YYYY-2` (jul–dic), filtrando `Enrollment.semesterCode` y `TeacherCourse.period`. La lógica está centralizada en `src/lib/period.ts`; queda una implementación local equivalente en `missionVerificationService.ts:88` (ver la sección 11).
+Periodo actual en todas las rutas: `YYYY-1` (ene–jun) / `YYYY-2` (jul–dic), filtrando `Enrollment.semesterCode` y `TeacherCourse.period`. La lógica está centralizada en `src/lib/period.ts`; queda una implementación local equivalente en `missionVerificationService.ts:92` (ver la sección 11).
 
 ---
 
@@ -294,13 +294,13 @@ flowchart LR
 - **Autenticación**: Credentials, dominio con regex exacta en `authorize` (`src/lib/auth.ts:36` → `normalizeInstitutionalEmail`), hash bcrypt, sesión JWT con `{id, role}`. Solo existen las cuentas del seed: no hay alta de cuentas (ver la sección 11.2).
 - **Autorización**: `src/middleware.ts` (páginas; pública `/login`) + `requireRole(string|string[])` y `requireAdmin()` por endpoint; errores `400` entrada, `401 {error:"No autorizado"}`, `403` rol, `404` recurso.
 - **Política de contraseña**: `validatePassword` (8+, mayúscula, número) se aplica en el alta docente. Sin flujo de recuperación/reset (ver la sección 11).
-- **Auditoría y racha**: `Activity {action, details}` con `ACTIVITY_ACTIONS` (`LOGIN`, `PAGE_VIEW`, `ACADEMIC_DAILY_ACTIVITY`, `RUTA_RECOMENDADA_DOCENTE`); `calculateStreak` → `{current, best, activeToday}`.
+- **Auditoría y racha**: `Activity {action, details}` con `ACTIVITY_ACTIONS` (`LOGIN`, `DASHBOARD_PAGE_VIEW` = `PAGE_VIEW:/dashboard`, `DAILY_ACADEMIC` = `ACADEMIC_DAILY_ACTIVITY`, `ROUTE_RECOMMENDED_DOCENTE` = `RUTA_RECOMENDADA_DOCENTE`); `calculateStreak` → `{current, best, activeToday}`.
 - **Integridad académica**: `source UNIVERSITY/MANUAL`; promedio y `APROBAR_CREDITOS_SEMESTRE` filtran `MANUAL` sin aval.
 - **Misiones automáticas**: `verificationKey/Value` interpretados por `src/domain/missions/missionVerificationService.ts` (créditos, promedio, racha, curso). El catálogo mezcla misiones permanentes (`cadence: ONCE`, `actionUrl`/`actionLabel`) y plantillas semanales (`cadence: WEEKLY`). El plan semanal se calcula en `src/domain/missions/weeklyMissionPlan.ts` y se persiste por estudiante/semana ISO en `StudentMission.weekKey`; los hábitos usan `autoVerify` y las de recurso se completan con `action: "visit"`.
 - **Destinos de misión**: `src/lib/missionLinks.ts` solo autoriza rutas internas (`/malla`) y URLs HTTPS de `utb.edu.co` o subdominios. El cliente abre externos en pestaña nueva y usa `router.push` para rutas internas, refrescando el estado al volver (`pageshow`).
 - **UX**: tarjetas `rounded-xl border bg-white dark:bg-gray-800`, acento azul/cian, `next-themes` (default light), responsive móvil/escritorio. `/login` sin `Sidebar/Header` (`AppShell`).
 - **Calidad de código**: `npm run lint` (ESLint next+TS; 0 errores, 0 advertencias), `npm run test:unit` (76 pruebas unitarias sobre `src/domain`, `src/lib` y `src/application`), `npx tsc --noEmit` y `npm run build`.
-- **Fuente académica**: `getAcademicSource()` se resuelve en cada request. Con la API externa caída, `HttpAcademicSource` lanza `EXTERNAL_API_UNAVAILABLE` y `curriculum`/`student` responden `503`, para que el fallo sea distinguible de un error de la app.
+- **Fuente académica**: `getAcademicSource()` se resuelve en cada request y hoy siempre devuelve `HttpAcademicSource` (`isExternalAcademicEnabled()` está fijado a `true`; la variable `UNIVERSITY_API_ENABLED` solo la define `docker-compose.yml`). Con la API externa caída, `HttpAcademicSource` lanza `EXTERNAL_API_UNAVAILABLE`, `curriculum`/`student` responden `503` y `/api/stats` degrada a Prisma, para que el fallo sea distinguible de un error de la app.
 - **Fuente de insignias**: `HttpBadgeSource` consume exclusivamente `utb-external-api`. Si la fuente no responde, `/api/badges` informa indisponibilidad; un 404 externo devuelve catálogo vacío porque el estudiante no está registrado.
 
 ---
@@ -340,11 +340,11 @@ flowchart LR
 | Seguridad | Sin sesión → `/login`; rol incorrecto → `403`; correos fuera del dominio institucional rechazados por regex exacta | Implementado |
 | Seguridad | Contraseñas con política mínima (8 caracteres, 1 mayúscula, 1 número) y hash bcrypt | Implementado |
 | Seguridad | Docente no puede auto-registrarse; `POST /api/admin/teachers` exige `ADMIN` | Implementado (bootstrap ADMIN pendiente) |
-| Disponibilidad degradada | Con `UNIVERSITY_API_ENABLED="true"` y la API externa caída → `503` controlado, sin datos parciales | Vigente |
+| Disponibilidad degradada | Si la API externa cae, `curriculum`/`student` → `503` controlado y `/api/stats` → fallback Prisma, sin datos académicos mezclados | Vigente |
 | Disponibilidad académica | La API externa es obligatoria para malla, historial e insignias; una caída responde con error controlado | Implementado |
 | Modificabilidad | Nueva regla de misión = nuevo `verificationKey` en `src/domain/missions/missionVerificationService.ts` + test en `src/domain/missions/missionRules.test.ts` | Vigente |
 | Modificabilidad | Nueva categoría de fuente institucional = una implementación de `AcademicSource` o `BadgeSource` | Implementado |
-| Testeabilidad | 66 pruebas unitarias sobre `src/domain`, `src/lib` y `src/application` (`npm run test:unit`, todas aprobadas) | Implementado; falta integración API |
+| Testeabilidad | 76 pruebas unitarias sobre `src/domain`, `src/lib` y `src/application` (`npm run test:unit`, todas aprobadas) | Implementado; falta integración API |
 
 ---
 
@@ -356,16 +356,18 @@ flowchart LR
 |---|---|---|
 | F1 | El login aceptaba cualquier sufijo con `endsWith` del dominio institucional | `src/lib/auth.ts:36` delega en `normalizeInstitutionalEmail`, que usa regex exacta `/^[a-z0-9._-]+@utb\.edu\.co$/` (`institutionalEmail.ts:10`) |
 | F2 | Malla e insignias mezcladas entre Prisma y API externa, con fuentes divergentes | `getAcademicSource()` y `getBadgeSource()` resuelven una única fuente HTTP; la respuesta de `/api/badges` incluye `origin{source, catalogVersion, degraded}` |
-| F3 | `StudentReward @@unique[studentId,rewardId]` bloqueaba `maxUses:2` | `prisma/schema.prisma:565` → `@@unique([studentId, rewardId, courseId])` |
-| F4 | Débitos de canje con `source:MISION_COMPLETADA` | `prismaRewardRepository.ts:287` usa `CANJE_RECOMPENSA` (`schema.prisma:293`) |
-| F5 | `RiskAlert.studentId` sin FK (huérfanos) | `schema.prisma:484-487` relation + cascade; `StudentProfile.riskAlerts` (`schema.prisma:67`) |
-| F6 | Promedio y `APROBAR_CREDITOS_SEMESTRE` farmeables con `MANUAL` | `src/lib/academic.ts:88-92` y `src/domain/missions/missionVerificationService.ts:174` filtran `source !== "MANUAL"` |
-| F7 | `requireRole` solo un rol; `ADMIN` sin helper | `session.ts:38-67` acepta `string|string[]` + `requireAdmin()` |
-| F8 | Sin validación de contraseña ni tests del módulo de correo institucional | `src/lib/institutionalEmail.ts:59-75` (`validatePassword`, `validateStudentCode`) + `src/lib/institutionalEmail.test.ts` |
+| F3 | `StudentReward @@unique[studentId,rewardId]` bloqueaba `maxUses:2` | `prisma/schema.prisma:575` → `@@unique([studentId, rewardId, courseId])` |
+| F4 | Débitos de canje con `source:MISION_COMPLETADA` | `prismaRewardRepository.ts:327` usa `CANJE_RECOMPENSA` (`schema.prisma:293`) |
+| F5 | `RiskAlert.studentId` sin FK (huérfanos) | `schema.prisma:494-509` (`model RiskAlert`) con relation + cascade en `:506`; `StudentProfile.riskAlerts` (`schema.prisma:67`) |
+| F6 | Promedio y `APROBAR_CREDITOS_SEMESTRE` farmeables con `MANUAL` | `src/lib/academic.ts:88-92` y `src/domain/missions/missionVerificationService.ts:178` filtran `source !== "MANUAL"` |
+| F7 | `requireRole` solo un rol; `ADMIN` sin helper | `session.ts:36-69` acepta `string|string[]` + `requireAdmin()` |
+| F8 | Sin validación de contraseña ni tests del módulo de correo institucional | `src/lib/institutionalEmail.ts:59-73` (`validatePassword`, `validateStudentCode`) + `src/lib/institutionalEmail.test.ts` |
 | F9 | Periodo académico duplicado con `getMonth() < 6` en varios archivos | Centralizado en `src/lib/period.ts` (`getCurrentPeriod`, `parsePeriod`, `getNextPeriod`, `getPreviousPeriod`, `isCurrentPeriod`) |
 | F10 | Seed demo con tres estudiantes y dos docentes, sin flujo end-to-end | `prisma/seed.ts` deja un estudiante y un docente enlazados por `C09A`, con 2000 puntos iniciales para probar canjes |
-| F11 | 13 misiones duplicadas por sincronizaciones repetidas | `scripts/sync-missions.ts` purga las obsoletas antes del upsert |
+| F11 | Misiones duplicadas por sincronizaciones repetidas | `scripts/sync-missions.ts` purga las obsoletas antes del upsert |
 | F12 | Alertas de riesgo sin relación con el perfil | `RiskAlert.student → StudentProfile` con cascade, e índice por estudiante |
+| F13 | `AVANZAR_SEMESTRE` y `CERO_REPROBADOS` podían farmearse con `MANUAL` | `buildApprovedCredits` filtra `source !== "MANUAL"` (`missionVerificationService.ts:47-67`) y `getFailedEnrollmentsForPeriod` también (`:186-196`); `AVANZAR_SEMESTRE` consume `approvedCredits` derivado del primero (`:205`) |
+| F14 | `utb-external-api/dist` versionado, desincronizado del código | `utb-external-api/.gitignore` incluye `dist`; no hay archivos de `dist/` trackeados |
 
 
 
@@ -375,6 +377,8 @@ flowchart LR
 - **Contrato de la API institucional**: falta el contrato real de la universidad; `utb-external-api` fija una forma de respuesta que debe ajustarse.
 - **Calendario oficial de periodos**: ¿el corte es enero–jun y julio–diciembre, o hay verano o intersemestral? `getCurrentPeriod` asume dos periodos al año.
 - **Proveedor de correo institucional**: no se usa correo en el flujo actual; si el alta requiere verificación, hay que definir el proveedor.
+- **Identidad institucional (bloqueo de SSO)**: ¿qué IdP autentica realmente `@utb.edu.co` (Microsoft Entra ID, Google Workspace u otro)? Si es Entra ID, se requiere que DTI registre una App registration single-tenant y entregue `clientId`, `clientSecret` y `tenantId`, además de autorizar el redirect `https://<host>/api/auth/callback/microsoft-entra-id`. Mientras no exista tenant, el flujo solo se puede desarrollar contra un tenant de prueba, no validar con cuentas reales.
+- **Diseño previsto si se habilita SSO**: provider `microsoft-entra-id` en `src/lib/auth.ts` con issuer del tenant específico (nunca `common`), validación del dominio con `normalizeInstitutionalEmail`, aprovisionamiento JIT contra `AllowedStudent`, `passwordHash` nullable y `token.id` reasignado al `User.id` de Prisma (en OAuth llega el id del proveedor). Los roles `TEACHER`/`ADMIN` no se derivan del token: siguen viniendo de `User.role` y del alta por `POST /api/admin/teachers`.
 - **`ADMIN` bootstrap**: quién es el primer administrador y cómo rota su clave.
 - **Datos reales**: qué dataset se usaría para una prueba con estudiantes reales, y bajo qué autorización de tratamiento de datos personales.
 
